@@ -1,0 +1,14 @@
+{
+  "_comment": "Team authority registry for .lastrun.json, shipped with the sdet-pipeline plugin. One entry per teammate who runs the pipeline (/automate, /regression, /review-automation). record-run.js resolves which entry to stamp onto a run using the 'resolution' order below, trying each strategy in turn until one matches: (1) an SDET_RUNNER_ID env var set to an id below, (2) this machine's `git config user.email` matched against an entry's `email` field, (3) `default` (deliberately unset here - see 'Onboarding a new teammate' below). A project can also override this whole file by dropping its own .claude/config/authors.json at its root, which record-run.js checks first.",
+  "_onboarding": "Add yourself as a new object in `authorities`: `id` (kebab-case, unique), `name`, `email` (must exactly match the output of `git config user.email` on your machine - that's what attributes a run to you automatically, no per-run setup needed), `designation` (optional). Open a PR against this file, or add yourself locally if you're not sharing changes back. Until you're added (or your git email matches nothing here), your runs are recorded as 'unknown' rather than misattributed to someone else - this file deliberately has no single hardcoded default identity, since it's shared across the whole team.",
+  "resolution": ["env:SDET_RUNNER_ID", "git:user.email", "default"],
+  "default": null,
+  "authorities": [
+    {
+      "id": "akhil-nair",
+      "name": "Akhil VN",
+      "email": "akhilvnair1999@gmail.com",
+      "designation": "Quality Analyst"
+    }
+  ]
+}
