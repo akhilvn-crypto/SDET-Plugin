@@ -1,7 +1,7 @@
 {
   "name": "sdet-pipeline",
   "displayName": "SDET Automation Pipeline",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Playwright + TypeScript SDET pipeline: UI/API test-authoring, execution, bug-reporting, and code-review sub agents, with guardrail hooks (secret-leak blocking, .env-commit blocking, execution-log enforcement) and a persistent per-run execution log.",
   "author": {
     "name": "Akhil VN"

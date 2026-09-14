@@ -64,28 +64,37 @@ to verify claims.
    Flag a missing log attachment (`testInfo.attach(...)`) when the project's convention is to attach
    one, since console-only output doesn't survive into the report/CI artifacts.
 
-9. **Debug artifacts config** — confirm `playwright.config.ts` retains screenshot/trace/video on
+9. **Test structure — grouping and comments** — flag ungrouped top-level `test(...)` calls in a
+   multi-test-case spec file where a `test.describe('<feature/flow or resource>', ...)` wrapper is
+   missing, and flag a `describe` name that doesn't actually describe the feature/flow/resource
+   under test. Flag a spec with no file/describe-level comment stating what it covers, and flag
+   non-obvious locators/waits/workarounds/test-data setup left uncommented — but don't ask for
+   comments that just restate what the code already says plainly. `test.step()` naming (covered
+   under Logging above) and `describe` grouping together should make a file's structure legible
+   without opening the approved test case side by side.
+
+10. **Debug artifacts config** — confirm `playwright.config.ts` retains screenshot/trace/video on
    failure and, where the project cares about network-level debugging, HAR recording
    (`recordHar`) is configured sensibly (path predictable, sensitive headers scrubbed/minimal
    mode) rather than left unset or capturing everything unfiltered.
 
-10. **Reuse vs. duplication** — check for existing Page Objects/API clients/fixtures/helpers/auth
+11. **Reuse vs. duplication** — check for existing Page Objects/API clients/fixtures/helpers/auth
     mechanisms before flagging "should extract a helper"; don't invent duplicate utilities that
     already exist elsewhere in the repo. For API tests specifically, flag ad hoc inline
     `request.get/post(...)` calls that duplicate what an existing API client already wraps.
 
-11. **API contract assertions** (API tests only) — status code and response-shape assertions must
+12. **API contract assertions** (API tests only) — status code and response-shape assertions must
     be specific to the approved intent, not a loose catch-all (`expect(response.ok()).toBeTruthy()`
     alone, with no check on the body, is usually too weak). Flag a schema/validation dependency that
     was added for a trivial contract when plain `expect()` assertions would have done, per
     `api-test-writer`'s own guidance to keep validation lightweight unless the project already uses
     one.
 
-12. **Balanced-scenario coherence** (when a change spans both a UI spec and an API spec for the
+13. **Balanced-scenario coherence** (when a change spans both a UI spec and an API spec for the
     same test case) — confirm the two halves share test data/IDs instead of each creating its own
     independent fixture data, which silently defeats the point of testing the same flow twice.
 
-13. **Maintainability** — naming clarity, file organization, avoidance of over-abstraction, and
+14. **Maintainability** — naming clarity, file organization, avoidance of over-abstraction, and
     whether a future maintainer could follow the test's intent from the approved test case.
 
 ## How to review
@@ -113,7 +122,8 @@ artifacts (including through logs), assertions weakened to force a pass, a test'
 assertion made soft, a gating precondition check made soft.
 **Should fix** — brittle locators, arbitrary waits, non-deterministic patterns, missing failure
 artifacts/HAR config, missing/ad hoc logging where a convention exists, independent sibling checks
-forced through hard assertions that hide each other's failures, convention violations.
+forced through hard assertions that hide each other's failures, tests missing `test.describe`
+grouping, missing structural comments, convention violations.
 **Nice to have** — naming, minor duplication, structure suggestions.
 
 For each finding: file/line, what's wrong, why it matters (concrete failure scenario), and the

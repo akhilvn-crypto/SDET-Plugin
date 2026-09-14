@@ -215,6 +215,23 @@ an assertion just to make a test pass.** For the API half of a balanced scenario
 with `test-writer`'s UI half (an ID/record one side creates and the other verifies) instead of each
 side creating its own independent fixture data.
 
+**Group tests with `test.describe`.** Wrap each API spec file's test cases in
+`test.describe('<resource/endpoint>', () => { ... })`, named for the resource or endpoint under
+test (e.g. `test.describe('Orders API > POST /orders', ...)`). Group every test case for the same
+endpoint/resource — success, validation errors, auth failures — inside one `describe` instead of
+leaving ungrouped top-level `test(...)` calls; nest a `test.describe` only for a genuinely distinct
+sub-scenario (e.g. a nested block for "as an unauthenticated user"). A spec file covering more than
+one related case with no `describe` wrapper is a convention violation, not a style choice.
+
+**Comment the code, not just the run.** Same split as `test-writer`'s §10: the structured request/
+response logging in §11 documents what one *run* did; comments document the contract for the next
+reader. At minimum: a short comment above the `describe` (or file top) naming the endpoint/resource
+and any non-obvious precondition (e.g. "requires an order created via OrdersApiClient.create — see
+fixtures"); a comment wherever a header, query param, or body field is set for a reason that isn't
+obvious from its name (e.g. why a specific `Idempotency-Key` value is used); a note when a request
+body was derived from an imported collection/spec (§6) vs. hand-written. Don't restate the obvious —
+comment intent, not mechanics.
+
 ## 11. Logging
 
 Every API test must leave a clear, structured trail — not silence, and not ad hoc `console.log`
@@ -224,7 +241,8 @@ agent's §11, since both UI and API specs should log the same way in one project
 
 - Wrap each logical action in `test.step('<what this call proves>', async () => { ... })` — name
   steps by intent ("create order via API and capture its id", "verify order status transitioned to
-  shipped"), not by implementation.
+  shipped"), not by implementation. Where the approved test case lists numbered steps, mirror them
+  1:1 in the `test.step()` calls so the trace timeline reads like the test case itself.
 - On every request, log method, URL, sanitized headers (never a real token/cookie value — variable
   name only, per §4), and a sanitized body. On the response, log status, timing, and a sanitized
   body — at minimum on failure, but logging it unconditionally at debug level makes triage far
@@ -354,8 +372,14 @@ see `commands/automate.md`):
 - [ ] Assertions are meaningful (status + relevant body/shape); none weakened to force a pass
 - [ ] Hard vs. soft assertions chosen deliberately per §12 (status/shape/preconditions hard;
       independent sibling field checks soft) — not defaulted to one kind throughout
-- [ ] Steps wrapped in named `test.step()`; sanitized request/response and outcomes logged via the
-      shared logger (§11); no secret ever logged
+- [ ] Tests grouped under a named `test.describe('<resource/endpoint>')`; a lone ungrouped
+      `test(...)` only when there's truly nothing to group it with
+- [ ] Steps wrapped in named `test.step()`, mirroring the approved test case's steps where
+      applicable; sanitized request/response and outcomes logged via the shared logger (§11); no
+      secret ever logged
+- [ ] File/describe-level comment names the endpoint/resource and any non-obvious precondition;
+      non-obvious headers/params/body fields and collection-derived requests are commented with
+      *why*, not a restatement of *what* the code already says
 - [ ] Test log attached to the report as an artifact, not left only in console output
 - [ ] Tests are deterministic and maintainable
 - [ ] Failure evidence captured: sanitized request/response, trace

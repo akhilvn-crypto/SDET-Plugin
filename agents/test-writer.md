@@ -218,6 +218,26 @@ helpers, follows existing conventions, avoids duplication, avoids `waitForTimeou
 Playwright's built-in auto-waiting/web-first assertions, and stays deterministic and maintainable.
 **Never weaken an assertion just to make a test pass.**
 
+**Group tests with `test.describe`.** Wrap every spec file's test cases in
+`test.describe('<feature or flow>', () => { ... })`, named for the feature/flow under test (e.g.
+`test.describe('Login', ...)`, `test.describe('Checkout > guest checkout', ...)`). Put every test
+case that belongs to the same feature/flow — happy path, edge cases, negative cases — inside one
+`describe` block instead of scattering them as ungrouped top-level `test(...)` calls; use a nested
+`test.describe` only when a sub-flow genuinely narrows the scope (e.g. a `describe` for "guest
+checkout" nested inside "Checkout"). A spec file with more than one related test case and no
+`describe` wrapper is a convention violation, not a style choice.
+
+**Comment the code, not just the run.** Structured logging (§11) documents what a *run* did;
+comments document what the *code* does for the next reader, and both are required — neither
+substitutes for the other. At minimum: a short comment above the `describe` block (or at the top of
+the file) stating the feature/flow it covers and any non-obvious precondition (e.g. "requires a
+pre-seeded admin user — see fixtures/testFixtures.ts"); a comment on any locator, wait, or
+workaround whose reason isn't obvious from the code itself (why it's scoped that way, why a retry/
+wait exists); a comment on test-data setup that isn't self-explanatory from the variable name.
+Don't comment what the code already says plainly (`// click submit` above
+`page.getByRole('button', { name: 'Submit' }).click()`) — comment the *why*, not a restatement of
+the *what*.
+
 ## 11. Logging
 
 Every test must leave a clear, structured trail of what it did — not silence, and not raw
@@ -228,7 +248,9 @@ writes only to stdout + the test's own report attachment — never to an externa
 
 - Wrap every logical action in `test.step('<what this step does>', async () => { ... })`. This is
   what actually renders in the HTML report and trace timeline, so name steps by intent ("log in as
-  standard user", "submit checkout form"), not by implementation ("click button #3").
+  standard user", "submit checkout form"), not by implementation ("click button #3"). Where the
+  approved test case lists numbered steps, mirror them 1:1 in the `test.step()` calls so the trace
+  timeline reads like the test case itself — a reviewer shouldn't have to cross-reference the two.
 - Inside each step, log what you're about to do, the key input values used (sanitized — never a
   secret, see §4), and the outcome (e.g. "found 3 rows", "navigated to /dashboard", "received
   201"). Don't log Playwright's own internal actions redundantly — the trace already records those;
@@ -352,8 +374,14 @@ passes.
 - [ ] Assertions are meaningful; none weakened to force a pass
 - [ ] Hard vs. soft assertions chosen deliberately per §12 (gating checks hard; independent sibling
       checks soft) — not defaulted to one kind throughout
-- [ ] Steps wrapped in named `test.step()`; key actions/values/outcomes logged via the shared
-      logger (§11); no secret ever logged
+- [ ] Tests grouped under a named `test.describe('<feature/flow>')`; a lone ungrouped `test(...)`
+      only when there's truly nothing to group it with
+- [ ] Steps wrapped in named `test.step()`, mirroring the approved test case's steps where
+      applicable; key actions/values/outcomes logged via the shared logger (§11); no secret ever
+      logged
+- [ ] File/describe-level comment states the flow/feature and any non-obvious precondition;
+      non-obvious locators/waits/workarounds/test-data are commented with *why*, not a restatement
+      of *what* the code already says
 - [ ] Test log attached to the report as an artifact, not left only in console output
 - [ ] No arbitrary `waitForTimeout()`
 - [ ] Tests are deterministic and maintainable
