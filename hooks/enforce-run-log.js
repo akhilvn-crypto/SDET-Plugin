@@ -2,7 +2,7 @@
 /**
  * Stop hook: makes sure the execution log actually gets written every time a
  * pipeline command runs, instead of relying on the agent to remember the last
- * step of /automate, /regression, or /review-automation.
+ * step of /automate, /runtest, or /review-automation.
  *
  * Logic (deliberately ordering-based, not timestamp-based - transcript order
  * is already chronological, so there's nothing to parse or trust a clock for):
@@ -42,7 +42,7 @@ const MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024; // skip enforcement on unreasonabl
 // "/sdet-pipeline:automate" rather than "/automate" — the optional
 // "(?:[\w.-]+:)?" prefix matches either form so this works whether the pipeline
 // is running from this plugin or from a plain project-level .claude/commands/.
-const PIPELINE_COMMAND_RE = /^\s*<command-name>\s*\/(?:[\w.-]+:)?(automate-api|automate|regression|review-automation)\b/i;
+const PIPELINE_COMMAND_RE = /^\s*<command-name>\s*\/(?:[\w.-]+:)?(automate-api|automate|runtest|review-automation)\b/i;
 const RECORD_RUN_RE = /record-run\.js/;
 
 // True only for a real top-level user command turn, never a tool_result (or

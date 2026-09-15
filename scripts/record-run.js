@@ -3,7 +3,7 @@
  * Appends/overwrites the execution log at the CALLING PROJECT's root: .lastrun.json
  *
  * Called as the last step of a pipeline command (/automate, /automate-api,
- * /regression, /review-automation) once the run's outcome is known. Deliberately a plain
+ * /runtest, /review-automation) once the run's outcome is known. Deliberately a plain
  * script rather than left to the agent to compose by hand: the timestamp,
  * authority lookup, and changed-file list must be exact, not guessed.
  *
@@ -19,7 +19,12 @@
  *     [--lessons-recorded "automation-knowledge/failures/FL-004.md"] \
  *     [--bugs-new BUG-004] [--bugs-still-open BUG-002,BUG-003] \
  *     [--bugs-fixed BUG-001] [--bugs-regressed BUG-005] \
+ *     [--runner-name "Jane Doe"] [--runner-role "QA Engineer"] \
  *     [--out path/to/.lastrun.json] [--runner-config path/to/authors.json]
+ *
+ * --runner-name/--runner-role are asked of the user at the start of /runtest (see
+ * skills/runtest/SKILL.md §1) and, when given, always take priority over whatever
+ * config/authors.json would have auto-resolved for this run.
  *
  * Deliberately NOT __dirname-relative: __dirname is wherever the plugin happens to be
  * installed (e.g. ~/.claude/plugins/...), never the project being automated. Both the
@@ -170,7 +175,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (!args.pipeline || !args.command) {
-    console.error('Usage: record-run.js --pipeline <automate|automate-api|regression|review-automation> --command "<text>" [options]');
+    console.error('Usage: record-run.js --pipeline <automate|automate-api|runtest|review-automation> --command "<text>" [options]');
     process.exit(1);
   }
 
@@ -191,7 +196,18 @@ function main() {
   if (!config) {
     console.error(`Warning: could not read authority config at ${runnerConfigPath}; recording as unknown runner.`);
   }
-  const { authority, resolvedVia } = resolveAuthority(config, cwd);
+  const { authority } = resolveAuthority(config, cwd);
+
+  let runBy = {
+    name: authority.name,
+    role: authority.role,
+  };
+  if (args['runner-name']) {
+    runBy = {
+      name: args['runner-name'],
+      role: args['runner-role'] || authority.role || null,
+    };
+  }
 
   let changes;
   const hasExplicitChanges = args['files-added'] || args['files-modified'] || args['files-deleted'];
@@ -225,13 +241,7 @@ function main() {
       pipeline: args.pipeline,
       command: args.command,
       agents: csv(args.agents),
-      runBy: {
-        id: authority.id,
-        name: authority.name,
-        email: authority.email,
-        role: authority.role,
-        resolvedVia,
-      },
+      runBy,
       runAtIST: formatIST(now),
       runAtUTC: now.toISOString(),
       result: {
