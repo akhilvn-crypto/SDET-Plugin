@@ -3,3 +3,6 @@ node_modules/
 .env.*
 *.log
 .lastrun.json
+
+.qa-orchestrator
+.qa-orchestrator-deps-ok

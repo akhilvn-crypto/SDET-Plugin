@@ -51,16 +51,23 @@ Approved Test Case
    -> Final Engineering Validation
 ```
 
-## 0. Balanced scenarios — you own the UI half only
+## 0. Multi-half scenarios — you own the UI half only
 
-Most approved test cases are **balanced** by default (see `commands/automate.md`): proven
-through the UI *and* through the API state/response it should produce. On a balanced scenario you
-implement and own only the **UI half** — the `api-test-writer` agent owns the API half in the same
-project. Coordinate rather than duplicate: agree on shared test data (if your flow creates a
-record, hand its ID to `api-test-writer` rather than it creating a second one; if the API side
-creates the record first, consume its ID instead of creating your own), and reuse each other's
-exploration output where it overlaps (a HAR you capture while exploring a UI flow is often exactly
-the request shape `api-test-writer` needs — don't make it re-probe the same endpoint blind).
+UI is the pipeline's default scope (see `commands/automate.md`), but an approved test case
+can also be run **balanced** (`--type balanced`: proven through the UI *and* through the API
+state/response it should produce) and/or with a **visual** half (`--visual`: pixel baselines for
+the same surfaces). Whenever another half is running you implement and own only the **UI half** —
+the `api-test-writer` agent owns the API half and the `visual-test-writer` agent owns the visual
+half, in the same project and the same `playwright.config.ts`. The visual half reuses your auth
+state, test data, navigation path and Page Objects rather than building its own, so write them to
+be reusable.
+
+Coordinate with `api-test-writer` rather than duplicating: agree on shared test data (if your
+flow creates a record, hand its ID to `api-test-writer` rather than it creating a second one; if
+the API side creates the record first, consume its ID instead of creating your own), and reuse
+each other's exploration output where it overlaps (a HAR you capture while exploring a UI flow
+is often exactly the request shape `api-test-writer` needs — don't make it re-probe the same
+endpoint blind).
 When the case is UI-only (`--type ui`), proceed exactly as below with no API coordination needed.
 
 ## 1. Input
@@ -329,8 +336,10 @@ info, Playwright snapshots, current app state), then diagnose the root cause, th
 into exactly one of `automation-knowledge/failures/README.md`'s categories: `LOCATOR_FAILURE`,
 `TIMING_FAILURE`, `ASSERTION_FAILURE`, `AUTHENTICATION_FAILURE`, `TEST_DATA_FAILURE`,
 `ENVIRONMENT_FAILURE`, `NETWORK_FAILURE`, `APPLICATION_DEFECT`, `CONFIGURATION_FAILURE`,
-`FRAMEWORK_FAILURE`, or `UNKNOWN` if it genuinely isn't clear yet. Do not blindly edit the test
-hoping something works.
+`FRAMEWORK_FAILURE`, `VISUAL_REGRESSION`, or `UNKNOWN` if it genuinely isn't clear yet. Do not
+blindly edit the test hoping something works. A `VISUAL_REGRESSION` (a `toHaveScreenshot`
+mismatch) isn't yours to resolve — hand it to `visual-test-writer`, which reviews the
+expected/actual/diff images; never clear one by re-recording a baseline or widening a threshold.
 
 ## 16. Fix, re-run, validate, and extract a lesson
 

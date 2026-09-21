@@ -2,7 +2,7 @@
 /**
  * Appends/overwrites the execution log at the CALLING PROJECT's root: .lastrun.json
  *
- * Called as the last step of a pipeline command (/automate, /automate-api,
+ * Called as the last step of a pipeline command (/automate, /automate-api, /update-baselines,
  * /runtest, /review-automation) once the run's outcome is known. Deliberately a plain
  * script rather than left to the agent to compose by hand: the timestamp,
  * authority lookup, and changed-file list must be exact, not guessed.
@@ -175,7 +175,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (!args.pipeline || !args.command) {
-    console.error('Usage: record-run.js --pipeline <automate|automate-api|runtest|review-automation> --command "<text>" [options]');
+    console.error('Usage: record-run.js --pipeline <automate|automate-api|runtest|review-automation|update-baselines> --command "<text>" [options]');
     process.exit(1);
   }
 

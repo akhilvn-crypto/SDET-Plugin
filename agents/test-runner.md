@@ -83,6 +83,13 @@ into exactly one of `automation-knowledge/failures/README.md`'s categories, and 
 - `APPLICATION_DEFECT` — the app is genuinely behaving wrong, not the test
 - `FRAMEWORK_FAILURE` — a shared fixture/Page Object/API client is wrong for every test using it
   (see recurring-failure note below)
+- `VISUAL_REGRESSION` — a `toHaveScreenshot` comparison differs from its committed baseline. Do
+  **not** decide from the diff ratio alone and never re-record the baseline to clear it: report
+  the expected/actual/diff artifact paths and hand it to `visual-test-writer`, whose §10 review
+  reads the three images and decides whether it's a genuine regression, an intended design change,
+  or harness noise (an unmasked dynamic region, a font fallback, an animation caught mid-flight).
+  A visual spec that failed because the element was never found is a `LOCATOR_FAILURE`, and one
+  that failed because the page hadn't settled is a `TIMING_FAILURE` — classify what actually broke
 - `UNKNOWN` — root cause not established yet
 
 Also note flakiness (passes on retry with no code change — note the retry count and pattern)

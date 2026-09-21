@@ -6,16 +6,17 @@ product bugs, code review for automation-code issues.
 
 ## What it does
 
-Five sub agents (`test-writer`, `api-test-writer`, `test-runner`, `bug-reporter`,
-`code-reviewer`) work together behind four pipeline commands, guarded by hooks that block
-secret leaks, block `.env` commits, and enforce an execution-log entry for every run.
+Six sub agents (`test-writer`, `api-test-writer`, `visual-test-writer`, `test-runner`,
+`bug-reporter`, `code-reviewer`) work together behind five pipeline commands, guarded by hooks
+that block secret leaks, block `.env` commits, and enforce an execution-log entry for every run.
 
 | Command | What it does |
 |---|---|
-| `/automate <test case>` | Full pipeline for one approved test case — writes the test (UI by default, API-only or balanced when asked), runs it, then routes to `bug-reporter` (real bug) or `code-reviewer` (bad test code). |
+| `/automate <test case>` | Full pipeline for one approved test case — writes the test (UI by default; API-only, balanced, or with visual-regression coverage when asked), runs it, then routes to `bug-reporter` (real bug) or `code-reviewer` (bad test code). |
 | `/automate-api <test case>` | Same pipeline, API-only — can be driven from a Postman/OpenAPI/Insomnia collection with `--collection <path>`. |
 | `/runtest [scope]` | Asks who's running the test and their role, then runs the existing Playwright suite (or a file/`@tag` subset) and diagnoses any failures. |
 | `/review-automation [path]` | Reviews Playwright + TypeScript automation code quality (defaults to the current git diff). |
+| `/update-baselines [scope]` | Reviews every failing visual snapshot by reading its expected/actual/diff images, refuses to re-record a genuine regression, and regenerates only the baselines you confirm are intended. |
 
 Claude also auto-invokes the matching skill from plain language (e.g. "automate TC-102") — no
 slash command required.
@@ -54,6 +55,8 @@ restarting.
 /sdet-pipeline:runtest
 /sdet-pipeline:runtest @smoke
 /sdet-pipeline:review-automation
+/sdet-pipeline:automate TC-310 --type balanced --visual
+/sdet-pipeline:update-baselines tests/dashboard.visual.spec.ts
 ```
 
 (Commands are namespaced by plugin name once installed; plain-language requests work too.)

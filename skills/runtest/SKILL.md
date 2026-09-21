@@ -19,10 +19,17 @@ Use the **test-runner** agent to execute: the given scope (a file path, `@tag`, 
 if no argument was given).
 
 Report pass/fail counts, classify every failure per its diagnosis rules (locator / assertion /
-timing / auth / test-data / environment / network-API / genuine app defect / flakiness), and list
-the path to each failure's screenshot/trace/video/HAR. Flag anything that looks like a genuine
-application defect so it can be routed to the **bug-reporter** agent next, rather than fixed as if
-it were an automation bug.
+timing / auth / test-data / environment / network-API / visual regression / genuine app defect /
+flakiness), and list the path to each failure's screenshot/trace/video/HAR. Flag anything that
+looks like a genuine application defect so it can be routed to the **bug-reporter** agent next,
+rather than fixed as if it were an automation bug.
+
+If the project has a `visual` Playwright project, it runs with the rest of the suite unless the
+scope says otherwise (`--project=visual` runs it alone). A `toHaveScreenshot` mismatch is a
+`VISUAL_REGRESSION`, not a locator failure: report the expected/actual/diff artifact paths and
+route it to the **visual-test-writer** agent to review the images and decide whether it's a real
+regression, an intended design change, or harness noise. Never clear one by re-recording a
+baseline — that's `/update-baselines`, and it needs a human.
 
 ## 3. Record the run
 
