@@ -23,6 +23,12 @@ Run the visual project **without** any update flag first:
   `*-expected.png`, `*-actual.png` and `*-diff.png` artifacts and classify each one as
   **Intended change**, **Genuine regression**, or **Harness noise**.
 
+- When a diff might be a colour change rather than a layout change, measure it instead of judging
+  it by eye:
+  `python "$CLAUDE_PLUGIN_ROOT/scripts/visual-color-delta.py" <expected.png> <actual.png>`.
+  A uniform delta across a region is a token/theme change; scattered edge pixels are
+  anti-aliasing, i.e. harness noise.
+
 Present the list to the user: one row per snapshot — file, diff ratio, what changed in words, and
 the verdict.
 
@@ -40,7 +46,9 @@ the verdict.
 ## 3. Update the confirmed scope only
 
 Run `npx playwright test --project=visual --update-snapshots` scoped as narrowly as the
-confirmation allows (a spec path or `-g "<test title>"`), never wider. Then:
+confirmation allows (a spec path or `-g "<test title>"`), never wider. Never loosen a threshold or
+pixel budget as part of an update — the budgets are derived from a measured noise floor
+(`visual-test-writer` §4a) and only ever move in the tightening direction. Then:
 
 - Open each regenerated PNG and confirm it shows the intended state, not a mid-load or error page.
 - Confirm no regenerated baseline renders a secret, token, or real personal data.
