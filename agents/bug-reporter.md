@@ -34,8 +34,10 @@ known `Open` bug (bump it, don't duplicate it) or a comeback of one marked `Fixe
 
 Collect everything available for the failing test:
 - Test name, file path, and the approved test case / step it corresponds to — when the test
-  carries `@<SPEC_ID>` / `@<SPEC_ID>-TCnn` tags, record both ids (put them in `related_test` and
-  `tags`) so the bug traces back to its specification and test case
+  carries `@<SPEC_ID>` / `@<SPEC_ID>-TCnn` tags, record both ids (put them in `related_test_case`,
+  `related_test` and `tags`) so the bug traces back to its specification and test case, and read
+  that case in `test-cases/<SPEC_ID>.test-cases.json` — its title, preconditions, steps and expected
+  results are already written in user terms and are the backbone of the plain-language report
 - Error message and stack trace
 - Screenshot(s) at point of failure
 - Trace file path (and key findings from it: which action failed, DOM state)
@@ -69,55 +71,96 @@ Before including any artifact path or excerpt in the report:
 different kind of knowledge from the exploration/failure lessons `automation-knowledge/` holds (see
 its README), so they get their own directory that can be archived/exported independently.
 
-Before filing or re-checking anything, check whether `bugs/` exists at the repo root. **If it
-doesn't, create the whole skeleton first** — `bugs/README.md`, `bugs/INDEX.md` (empty table, "No
-bugs filed yet."), `bugs/TEMPLATE.md`, and `bugs/history/README.md` (see
-`automation-knowledge/README.md`'s sibling-directory note for the exact layout/content each of
-these takes) — then proceed normally. Every run after the first just uses the directory that's
-already there; nothing needs to be told where it lives beyond "repo root".
+Before filing or re-checking anything, check whether `bugs/` exists at the repo root (or at
+`paths.bugs` when the project has an `sdet.config.json`). **If it doesn't, create the whole skeleton
+first** — `bugs/README.md`, `bugs/INDEX.md` (empty table, "No bugs filed yet."),
+`bugs/TEMPLATE.md`, and `bugs/history/README.md` (see `automation-knowledge/README.md`'s
+sibling-directory note for the exact layout/content each of these takes) — then proceed normally.
+Every run after the first just uses the directory that's already there; nothing needs to be told
+where it lives beyond "repo root".
+
+`bugs/TEMPLATE.md` is a copy of the plugin's `${CLAUDE_PLUGIN_ROOT}/templates/bug.template.md`. If
+the project's copy predates it (no `## Business impact` or `## Why this is a defect` section),
+replace it with the plugin's template before filing — it is a template, not a record, so nothing
+is lost. Existing `BUG-<NNN>.md` files are never restructured retroactively; when you next touch
+one (bump, Fixed, Regressed), add any missing plain-language section it lacks.
 
 ## 5. Write the bug report
 
 File it as `bugs/BUG-<NNN>.md` — copy `bugs/TEMPLATE.md` (next sequential number; check `INDEX.md`
-for the highest existing one) rather than retyping the structure by hand. It opens with a YAML
-frontmatter **Properties** block, then the narrative body:
+for the highest existing one) rather than retyping the structure by hand.
 
-**Properties** (frontmatter) — `bug_id`, `title` (concise, symptom-first, e.g. "Login fails with
-500 when password contains '&'"), `status` (`Open` for a new bug), `severity`
-(Blocker/Critical/Major/Minor), `priority`, `application_area`, `related_test`, `environment` (app
-under test, browser/engine + version, viewport, environment/URL, build or commit if known),
-`first_seen`/`last_seen` (today, for a new bug), `fixed_date` (leave blank), `occurrences` (1 for a
-new bug), `found_by`, `tags`. Leave a field present-but-blank rather than omitting it when unknown
-— see `bugs/README.md`'s Properties-block section for why.
+**Two audiences, one file.** Everything down to `## Linked test case` is written for a business
+stakeholder — a product owner, a client, a manager — who has never seen the test code and should
+not need to. They must be able to understand what is wrong, why it matters, and reproduce it
+themselves by following the steps in the application. Everything technical goes in the final
+`## Technical details (for the development team)` section, where developers find the evidence
+they need. Never mix the two.
 
-**Body:**
+**Properties** (frontmatter) — `bug_id`; `title` (what the user sees go wrong, in plain words —
+"No error message when signing in with a wrong password", not "alert locator not visible on
+/login"); `status` (`Open` for a new bug); `severity` (Blocker/Critical/Major/Minor); `priority`;
+`application_area` (the feature as users name it); `related_test_case` (the `<SPEC_ID>-TCnn` id,
+when the test carries one); `test_case_file` (the rendered test-cases `.md` it belongs to);
+`related_test` (automation file - test title); `environment`; `first_seen`/`last_seen` (today, for
+a new bug); `fixed_date` (leave blank); `occurrences` (1 for a new bug); `found_by`; `tags`. Leave a
+field present-but-blank rather than omitting it when unknown — see `bugs/README.md`'s
+Properties-block section for why.
 
-**Summary** — one or two sentences describing the defect.
+**Body** (sections in the template's order):
 
-**Severity/Priority justification** — one line (user impact, workaround availability, frequency).
+- **Summary** — one or two sentences: what goes wrong, for whom, where.
+- **Business impact** — who is affected, what they cannot do, how often, the workaround (or
+  "None"), and one line on why that makes it this severity.
+- **Where it happens** — the page/feature, environment and kind of account or data, described
+  (never the actual credential or personal data).
+- **Before you start** — the state needed before step 1, in plain words.
+- **Steps to reproduce** — numbered, one user action per step, minimal. Translate the test's steps
+  into what a person does in the application; the approved test case's own steps are the best
+  starting point, since they are already written that way.
+- **Expected result** — from the approved test case / requirement, quoting it where one exists.
+- **Actual result** — what the user sees instead. Quote on-screen text exactly.
+- **Why this is a defect** — the reasoning a stakeholder needs to trust the report: which
+  requirement or expected behaviour is not met; how we know it is the product and not the test or
+  the environment (what test-runner ruled out — e.g. "the page loaded normally and other fields
+  worked", "reproduced 3 times on a fresh session", "the system itself reported an internal
+  error"); and how consistently it happens.
+- **Linked test case** — a relative Markdown link to the test-cases `.md`, labelled with the TC id
+  and title, so a reader can go from the bug to the test and back (the test case links to this
+  bug the same way once the pipeline records it).
+- **Technical details (for the development team)** — the failing check verbatim, screenshot,
+  trace, video, HAR key requests (redacted headers noted), sanitized API request/response,
+  relevant console errors, which side (UI / API / mismatch) on a balanced run, and a **root cause
+  hint** clearly labelled as a hypothesis — you are not the one fixing it.
+- **History** — a one-line dated entry each time this bug file is touched (filed, bumped, marked
+  Fixed, Regressed) so the file's own history is legible without diffing.
 
-**Preconditions** — test data/account/state required to reproduce.
+**Plain-language rules** (everything above Technical details):
 
-**Steps to reproduce** — numbered, exact, minimal.
+- Name things as they appear on screen: "the **Place Order** button", "the *Email address* field" —
+  never a selector, locator, test id, CSS class, or variable name.
+- Describe behaviour, not mechanism: say what the user sees, not what the code did.
+- No developer terms. Translate them:
 
-**Expected result** — per the approved test case.
+  | Instead of | Write |
+  |---|---|
+  | element not visible / locator not found | "the ___ button/message does not appear" |
+  | assertion failed: expected X, received Y | "it should show X, but it shows Y" |
+  | HTTP 500 / 4xx / API returned an error | "the system failed to process the request and showed ___" (or "nothing happened on screen") |
+  | timeout after 30000ms | "the page was still loading after 30 seconds" |
+  | redirect to /login | "you are sent back to the sign-in page" |
+  | null / undefined / NaN displayed | "the field shows the word 'undefined' instead of the amount" |
+  | DOM, payload, endpoint, fixture, stack trace, console error, race condition | leave out — put it under Technical details |
 
-**Actual result** — what actually happened, citing the assertion that failed.
-
-**Evidence**
-- Screenshot: `<path>`
-- Trace: `<path>` (open with `npx playwright show-trace <path>`)
-- Video: `<path>` (if available)
-- HAR: `<path>` — key request(s): method, URL, status, timing (redacted headers noted)
-- API request/response (if from `api-test-writer`): method, URL, status, sanitized body/timing
-- Console errors: relevant lines only
-
-**Root cause hint** — if the trace/HAR points at something specific (e.g. API returned 500,
-frontend didn't handle a null field), say so as a hypothesis, clearly labeled as such — you are
-not the one fixing it.
-
-**History** — append a one-line dated entry each time this bug file is touched (filed, bumped,
-marked Fixed, Regressed) so the file's own history is legible without diffing.
+- Every sentence should make sense to someone who has never seen the code. If a technical fact is
+  essential to the reasoning (e.g. "the system reported an internal error"), state its *meaning* in
+  plain words here and the raw detail under Technical details.
+- Describe test data by its role ("a registered customer account", "an order over £500"), never
+  by value when it is a credential or personal data.
+- Be specific and neutral: exact on-screen text, exact counts ("3 out of 3 attempts"), no blame,
+  no speculation outside the labelled root cause hint.
+- Before saving, reread the plain-language sections as a stakeholder would: could they follow
+  the steps without help, and do they understand why this matters? If not, rewrite.
 
 ## 6. Persist and refresh the bug list
 
@@ -165,3 +208,13 @@ Markdown ready to paste into the project's issue tracker, plus the file path(s) 
 `bugs/` and the new/still-open/fixed/regressed ID buckets from §6. State
 plainly if evidence is incomplete (e.g. no HAR was captured) rather than filling gaps with
 speculation.
+
+For every bug filed, bumped or regressed, also return one line per linked test case:
+
+```
+TEST CASE UPDATE: <SPEC_ID-TCnn> | issue: BUG-<NNN> | actual: <the Actual result section, as one or two plain sentences>
+```
+
+The calling pipeline records it on the test case (`sdet.js results classify <TC> APPLICATION_DEFECT
+--issue BUG-<NNN> --actual "..."`), so the test case and the bug describe the failure in the same
+words and link to each other.

@@ -24,7 +24,6 @@
     "idPattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$"
   },
   "testing": {
-    "ui": true,
     "api": false,
     "visual": false,
     "functional": true,
@@ -34,6 +33,7 @@
   "paths": {
     "testCases": "test-cases",
     "generatedTests": "tests/generated",
+    "bugs": "bugs",
     "stateDir": ".sdet"
   },
   "execution": {

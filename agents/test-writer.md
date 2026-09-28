@@ -53,7 +53,7 @@ Approved Test Case
 
 ## 0. Multi-half scenarios — you own the UI half only
 
-UI is the pipeline's default layer (`testing.ui: true` in `sdet.config.json`, see
+UI is the pipeline's default layer (`testing.functional: true` in `sdet.config.json`, see
 `skills/sdet/SKILL.md` §3.5), but an approved test case can also be run **balanced**
 (`testing.api: true`: proven through the UI *and* through the API state/response it should
 produce) and/or with a **visual** half (`testing.visual: true`: pixel baselines for the same
@@ -69,7 +69,7 @@ the API side creates the record first, consume its ID instead of creating your o
 each other's exploration output where it overlaps (a HAR you capture while exploring a UI flow
 is often exactly the request shape `api-test-writer` needs — don't make it re-probe the same
 endpoint blind).
-When only the UI layer is on (`testing.ui` alone), proceed exactly as below with no API coordination needed.
+When only the functional (UI) layer is on (`testing.functional` alone), proceed exactly as below with no API coordination needed.
 
 ## 0a. When invoked by `/sdet` (spec-aware pipeline)
 

@@ -1,6 +1,6 @@
 ---
 name: sdet-config
-description: Create, view, or change the project's central sdet.config.json — spec folders and discovery rules, which automation layers run (UI, API, visual) and which coverage is generated (functional, security, accessibility), the API collection, where test cases/generated tests/state live, and execution behaviour.
+description: Create, view, or change the project's central sdet.config.json — spec folders and discovery rules, which automation layers run (functional/UI, API, visual) and which extra coverage is generated (security, accessibility), the API collection, where test cases/generated tests/state live, and execution behaviour.
 ---
 
 # SDET config
@@ -28,13 +28,13 @@ SDET='node "${CLAUDE_PLUGIN_ROOT}/scripts/sdet.js"'
    files with an `id:` field) and whether `package.json` / `playwright.config.*` and an existing
    `tests/` layout exist — so the proposed values fit this project instead of generic ones.
 3. Ask (one `AskUserQuestion` call, four questions): spec folder(s), offering what you found;
-   which automation layers to run (multi-select: UI, API, Visual, default UI only); which extra
+   which automation layers to run (multi-select: Functional (UI), API, Visual, default Functional only); which extra
    coverage to include (multi-select: security, accessibility, both off by default); and whether to
    add an example spec. If API is chosen and the project holds a Postman / OpenAPI / Insomnia file,
    suggest it as `api.collection`. Take every other value from the defaults unless the user
    volunteers one.
 4. Write it with a single call, e.g.
-   `$SDET config init --spec-root specs,requirements --ui=true --api=true --visual=false --collection postman/orders.json --security=true --accessibility=false [--example] [--set paths.generatedTests=tests/e2e/generated]`
+   `$SDET config init --spec-root specs,requirements --functional=true --api=true --visual=false --collection postman/orders.json --security=true --accessibility=false [--example] [--set paths.generatedTests=tests/e2e/generated]`
    (`--example` also drops an example spec into the first spec folder).
 5. `$SDET config validate`, then show `$SDET config show`.
 6. Recommend adding `.sdet/results/` to the project's `.gitignore` (it holds per-run result files),
@@ -58,16 +58,16 @@ or `config set testing.accessibility true`. Unknown keys are refused. Then `$SDE
 | `spec.extensions` | `.md .yaml .yml .json` | File types treated as specs. |
 | `spec.exclude` | `node_modules`, `.git`, `.sdet`, `test-results`, `playwright-report`, `README.md` | Names or project-relative paths skipped during discovery. |
 | `spec.idPattern` | `^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$` | Shape a stable spec id must have (e.g. `MAGENTO-LOGIN-001`). |
-| `testing.ui` | `true` | Automation layer: `test-writer` automates each case through the browser. |
+| `testing.functional` | `true` | Automation layer: functional UI testing — `test-writer` automates each case through the browser with Playwright. (Replaces the old `testing.ui`, which is still read and migrated.) |
 | `testing.api` | `false` | Automation layer: `api-test-writer` automates the API half of each case, plus `API`-type cases. |
 | `testing.visual` | `false` | Automation layer: `visual-test-writer` adds full-page and component visual baselines. |
-| `testing.functional` | `true` | Functional cases (Positive/Negative/Validation/Boundary/Edge/…). |
 | `testing.security` | `false` | Non-destructive security cases and automation. |
 | `testing.accessibility` | `false` | Accessibility cases, axe scans, and accessibility findings. Off unless set to `true`. |
 | `api.collection` | `null` | Postman / OpenAPI / Insomnia file (project-relative) that drives the API layer. `null` = the API layer explores the endpoints itself. |
 | `paths.testCases` | `test-cases` | Where `<SPEC_ID>.test-cases.json` / `.md` live. |
 | `paths.generatedTests` | `tests/generated` | Default home for new spec files when the project has no convention of its own. |
 | `paths.stateDir` | `.sdet` | Lifecycle state, spec snapshots, test-case history, run results. |
+| `paths.bugs` | `bugs` | Where `bug-reporter` files `BUG-<NNN>.md`; test cases link to bugs here (`results classify --issue BUG-004`). |
 | `execution.runAfterGenerate` | `true` | Execute affected tests after creating/updating automation. |
 | `execution.onUnchanged` | `verify` | For an unchanged spec: `skip` (report only), `verify` (check automation still maps to every case), `run` (also execute). |
 | `execution.playwrightProject` | `null` | Limit runs to one Playwright project (e.g. `chromium`). |

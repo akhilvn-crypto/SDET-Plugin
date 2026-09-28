@@ -19,12 +19,13 @@
  *             set-status <ID> --tc <TC,...> --status "<automation status>"
  *   trace     [<ID>...] [--write] [--json]
  *   run-args  [<ID>...] [--tc <TC,...>] [--json]
- *   results   ingest [<report.json>] [--spec <ID>]... | classify <TC_ID> <CATEGORY> [--issue <BUG-ID>]
+ *   results   ingest [<report.json>] [--spec <ID>]... | pending [<ID>...] [--json]
+ *             classify <TC_ID> <CATEGORY> [--actual "<plain-language actual result>"] [--issue <BUG-ID|URL|key>]...
  *   report    [<ID>...] [--json]
  *
  * Every command also accepts runtime config overrides, which win over sdet.config.json:
- *   --ui=true|false  --api=...  --visual=...  (automation layers)
- *   --security=true|false  --accessibility=true|false  --functional=...  (test-case dimensions)
+ *   --functional=true|false (UI via Playwright)  --api=...  --visual=...  (automation layers)
+ *   --security=true|false  --accessibility=true|false  (test-case dimensions)
  *   --collection <Postman/OpenAPI/Insomnia file>  --spec-root <dir>[,<dir>]  --set <dotted.key>=<value>
  *
  * Exit codes: 0 ok, 1 validation/usage error, 2 unexpected failure.
@@ -37,6 +38,7 @@ const specs = require('./lib/specs');
 const st = require('./lib/state');
 const tcs = require('./lib/testcases');
 const res = require('./lib/results');
+const ex = require('./lib/execution');
 
 const cwd = process.cwd();
 const out = (x) => console.log(typeof x === 'string' ? x : JSON.stringify(x, null, 2));
@@ -178,7 +180,7 @@ function cmdSpecs(sub, positional, flags) {
     const line = (cols) => cols.map((c, i) => c.padEnd(widths[i])).join('  ');
     out([line(header), line(widths.map((w) => '-'.repeat(w))), ...rowsTxt.map(line)].join('\n'));
     const onOff = (v) => (v ? 'enabled' : 'disabled');
-    out(`\nUI: ${onOff(config.testing.ui)} · API: ${onOff(config.testing.api)} · Visual: ${onOff(config.testing.visual)} · Security: ${onOff(config.testing.security)} · Accessibility: ${onOff(config.testing.accessibility)}`);
+    out(`\nFunctional (UI): ${onOff(config.testing.functional)} · API: ${onOff(config.testing.api)} · Visual: ${onOff(config.testing.visual)} · Security: ${onOff(config.testing.security)} · Accessibility: ${onOff(config.testing.accessibility)}`);
     return 0;
   }
   if (sub === 'assign-id') {
@@ -471,7 +473,7 @@ function cmdResults(sub, positional, flags) {
         out(`${id}: results found but no test-case file - skipped`);
         continue;
       }
-      const touched = res.applyResults(doc, byTc, config);
+      const touched = res.applyResults(doc, byTc, config, cwd);
       tcs.writeDoc(file, doc);
       tcs.writeMarkdown(file, doc, { config });
       if (state.specs[id] && touched.length) {
@@ -487,19 +489,41 @@ function cmdResults(sub, positional, flags) {
   }
   if (sub === 'classify') {
     const [tcId, category] = positional;
-    if (!tcId || !category) throw new UsageError('Usage: results classify <TC_ID> <CATEGORY> [--issue BUG-001]');
+    if (!tcId || !category) throw new UsageError('Usage: results classify <TC_ID> <CATEGORY> [--actual "<plain-language actual result>"] [--issue <BUG-001|tracker URL|key>]...');
     if (!res.CLASSIFICATION_BUCKETS[category]) throw new UsageError(`Unknown category "${category}". One of: ${Object.keys(res.CLASSIFICATION_BUCKETS).join(', ')}`);
     const id = specIdOf(tcId);
     const { file, doc } = loadDocOrFail(config, state, id);
     const tc = doc.test_cases.find((t) => t.tc_id === tcId);
     if (!tc) throw new UsageError(`${tcId} not found.`);
-    if (!tc.last_execution) throw new UsageError(`${tcId} has no recorded execution to classify.`);
-    tc.last_execution.classification = category;
-    if (flags.issue) tc.last_execution.linked_issue = String(flags.issue);
+    const e = tc.last_execution;
+    if (!e) throw new UsageError(`${tcId} has no recorded execution to classify.`);
+    if (flags.actual === true || (flags.actual !== undefined && !String(flags.actual).trim())) throw new UsageError('--actual needs the actual result as text.');
+    // Resolve every issue before changing anything, so a bad reference leaves the file untouched.
+    const refs = list(flags.issue).map((i) => ex.issueRef(cwd, config, i));
+    ex.migrateLinkedIssue(tc, cwd, config);
+    e.classification = category;
+    if (flags.actual !== undefined) {
+      e.actual_result = String(flags.actual).trim();
+      e.actual_result_authored = true;
+    }
+    const linked = ex.linkIssues(tc, refs);
+    ex.derive(e);
     tcs.writeDoc(file, doc);
-    tcs.writeMarkdown(file, doc, { config });
-    out(`${tcId}: ${category} -> ${res.CLASSIFICATION_BUCKETS[category]}${flags.issue ? ` (${flags.issue})` : ''}`);
+    tcs.writeMarkdown(file, doc, { config, cwd });
+    out(`${tcId}: ${category} -> ${res.CLASSIFICATION_BUCKETS[category]}; test status ${e.test_status}${linked.length ? `; linked ${linked.join(', ')}` : ''}`);
     return 0;
+  }
+  if (sub === 'pending') {
+    const ids = positional.length ? positional : Object.keys(state.specs);
+    const rows = [];
+    for (const id of ids) {
+      const { doc } = tcs.loadDoc(cwd, config, id, state.specs[id]);
+      if (doc) rows.push(...res.pendingActions(doc, config));
+    }
+    if (flags.json) out(rows);
+    else if (!rows.length) out('OK - every failure has a classification, an actual result and (for defects) a linked bug.');
+    else rows.forEach((r) => out(`${r.tc} (${r.status}): missing ${r.missing.join(', ')}`));
+    return rows.length ? 1 : 0;
   }
   throw new UsageError(`Unknown results command "${sub}".`);
 }

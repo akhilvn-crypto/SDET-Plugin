@@ -9,13 +9,15 @@
  *
  * Field ownership:
  *   - authored (by the /sdet skill):  everything except the fields below
- *   - script-managed (never hand-edit): automation.*, last_execution
+ *   - script-managed (never hand-edit): automation.*, last_execution, linked_issues
+ *     (last_execution carries execution_status, test_status and actual_result - see execution.js)
  *   - automation_status: authored when a case needs re-automation ("Needs Update"),
  *     otherwise kept in sync by `trace --write`.
  */
 const fs = require('fs');
 const path = require('path');
 const { readJson, writeJson, writeText, rel, today, escapeRegex, UsageError } = require('./util');
+const ex = require('./execution');
 
 const TEST_TYPES = ['Positive', 'Negative', 'Validation', 'Boundary', 'Edge', 'Permission', 'Integration', 'Security', 'Accessibility', 'Database', 'API'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -270,19 +272,47 @@ function table(headers, rows) {
   return [`| ${headers.join(' | ')} |`, `| ${headers.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.map(cell).join(' | ')} |`)].join('\n');
 }
 
-function executionStatus(tc) {
-  const e = tc.last_execution;
-  if (!e) return 'Not Executed';
-  return e.status;
+/** Linked issues as Markdown links relative to the rendered file, with the bug's live title/status. */
+function issueLinks(tc, cwd, mdDir, config) {
+  return ex
+    .linkedIssuesOf(tc)
+    .map((l) => {
+      if (!l.path && !l.url) {
+        try {
+          l = { ...l, ...ex.issueRef(cwd, config, l.id) }; // legacy free-text id not yet migrated
+        } catch {
+          // no local bug file for it - show the id as given
+        }
+      }
+      const meta = ex.bugMeta(cwd, l);
+      let target = l.url || (l.path ? path.relative(mdDir, path.resolve(cwd, l.path)).split(path.sep).join('/') : null);
+      if (target && /\s/.test(target)) target = `<${target}>`;
+      const label = target ? `[${l.id}](${target})` : l.id;
+      if (meta && meta.missing) return `${label} (bug file missing)`;
+      const info = meta ? [meta.status, meta.severity].filter(Boolean).join(', ') : '';
+      return `${label}${meta && meta.title ? ` — ${meta.title}` : ''}${info ? ` (${info})` : ''}`;
+    })
+    .join('; ');
 }
 
-function renderMarkdown(doc, { config }) {
+function actualResultOf(e) {
+  if (!e) return '';
+  if (e.actual_result) return e.actual_result;
+  return e.status === 'Failed' ? 'Pending diagnosis - see Technical Details.' : '';
+}
+
+function renderMarkdown(doc, { config, cwd = process.cwd(), mdFile = null }) {
+  const mdDir = mdFile ? path.dirname(mdFile) : cwd;
   const meta = doc.meta || {};
   const control = doc.document_control || {};
   const active = doc.test_cases.filter((tc) => tc.status === 'Active');
   const countBy = (key) => active.reduce((acc, tc) => ({ ...acc, [tc[key]]: (acc[tc[key]] || 0) + 1 }), {});
   const typeCounts = countBy('test_type');
   const autoCounts = countBy('automation_status');
+  const testStatusCounts = active.reduce((acc, tc) => {
+    const s = ex.testStatusOf(tc.last_execution);
+    return { ...acc, [s]: (acc[s] || 0) + 1 };
+  }, {});
   const parts = [
     `# ${control.title || `Test Cases – ${meta.spec_id}`}`,
     `> Generated from \`${meta.source_doc}\` (spec **${meta.spec_id}**, version ${meta.spec_version ?? 'n/a'}). Rendered from \`${meta.spec_id}.test-cases.json\` — edit the JSON, never this file.`,
@@ -314,15 +344,27 @@ function renderMarkdown(doc, { config }) {
         ['Obsolete test cases', doc.test_cases.length - active.length],
         ['By type', Object.entries(typeCounts).map(([k, v]) => `${k}: ${v}`).join(', ')],
         ['By automation status', Object.entries(autoCounts).map(([k, v]) => `${k}: ${v}`).join(', ')],
-        ['Automation layers', [['ui', 'UI'], ['api', 'API'], ['visual', 'Visual']].filter(([k]) => config.testing[k]).map(([, label]) => label).join(', ') || 'None'],
+        ['By test status', ex.TEST_STATUSES.filter((s) => testStatusCounts[s]).map((s) => `${s}: ${testStatusCounts[s]}`).join(', ')],
+        ['Automation layers', [['functional', 'Functional (UI)'], ['api', 'API'], ['visual', 'Visual']].filter(([k]) => config.testing[k]).map(([, label]) => label).join(', ') || 'None'],
         ['Security testing', config.testing.security ? 'Enabled' : 'Disabled'],
         ['Accessibility testing', config.testing.accessibility ? 'Enabled' : 'Disabled'],
       ]
     ),
+    '## Execution Results',
+    active.some((tc) => tc.last_execution)
+      ? table(
+          ['TC ID', 'Title', 'Execution Status', 'Test Status', 'Actual Result', 'Linked Issues', 'Last Executed'],
+          active.map((tc) => {
+            const e = tc.last_execution;
+            return [tc.tc_id, tc.title, ex.executionStatusOf(e), ex.testStatusOf(e), actualResultOf(e), issueLinks(tc, cwd, mdDir, config), e ? e.at.slice(0, 16).replace('T', ' ') : ''];
+          })
+        )
+      : '_Not executed yet._',
   ];
 
   const entries = doc.test_cases.map((tc) => {
     const e = tc.last_execution || {};
+    const executed = Boolean(tc.last_execution);
     const tests = ((tc.automation && tc.automation.tests) || []).map((t) => `\`${t.file}:${t.line}\`${t.title ? ` — ${t.title}` : ''}`).join('; ');
     const bullets = [
       ['Requirement', tc.req_id],
@@ -336,10 +378,13 @@ function renderMarkdown(doc, { config }) {
       ['Accessibility Relevance', tc.accessibility_relevance],
       ['Automation Status', tc.automation_status],
       ['Automated Test', tests],
-      ['Execution Status', executionStatus(tc)],
-      ['Actual Result', e.error || (e.status === 'Passed' ? 'As expected' : '')],
-      ['Failure Classification', e.classification],
-      ['Linked Issue', e.linked_issue],
+      ['Execution Status', ex.executionStatusOf(tc.last_execution)],
+      ['Test Status', ex.testStatusOf(tc.last_execution)],
+      ['Last Executed', executed ? `${e.at.slice(0, 16).replace('T', ' ')}${e.project ? ` (${e.project})` : ''}` : ''],
+      ['Actual Result', actualResultOf(tc.last_execution)],
+      ['Failure Classification', e.classification ? `${ex.CLASSIFICATION_BUCKETS[e.classification] || 'Unknown'} (${e.classification})` : ''],
+      ['Linked Issues', issueLinks(tc, cwd, mdDir, config)],
+      ['Technical Details', ['Failed', 'Flaky'].includes(e.status) ? e.error : ''],
     ]
       .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== '')
       .map(([k, v]) => `- **${k}:** ${String(v).replace(/\r?\n/g, ' ')}`)
@@ -364,7 +409,7 @@ function writeDoc(file, doc) {
 
 function writeMarkdown(file, doc, ctx) {
   const mdFile = file.replace(/\.json$/, '.md');
-  writeText(mdFile, renderMarkdown(doc, ctx));
+  writeText(mdFile, renderMarkdown(doc, { ...ctx, mdFile }));
   return mdFile;
 }
 

@@ -20,7 +20,7 @@ Arguments (all optional):
 | `--list` | Show discovered specs and their automation state, then stop. Read-only. |
 | `--report [<ID>...]` | Print the lifecycle report from stored state, then stop. Read-only. |
 | `--dry-run` | Discover and print the plan (what would be created/updated/skipped), change nothing. |
-| `--ui=true\|false`, `--api=true\|false`, `--visual=true\|false` | Choose which automation layers run (§3.5), for this run only. |
+| `--functional=true\|false` (UI), `--api=true\|false`, `--visual=true\|false` | Choose which automation layers run (§3.5), for this run only. |
 | `--collection <path>` | Drive the API layer from a Postman / OpenAPI / Insomnia file (sets `api.collection`). Only used when the API layer is on. |
 | `--security=true\|false`, `--accessibility=true\|false`, `--set <key>=<value>` | Override `sdet.config.json` for this run only. |
 
@@ -36,7 +36,7 @@ All deterministic work goes through one script. From the project root:
 SDET='node "${CLAUDE_PLUGIN_ROOT}/scripts/sdet.js"'
 ```
 
-Pass every runtime override from the arguments (`--ui=…`, `--api=…`, `--visual=…`,
+Pass every runtime override from the arguments (`--functional=…`, `--api=…`, `--visual=…`,
 `--collection …`, `--security=…`, `--accessibility=…`, `--set …`) through to **every** `$SDET` call
 in this run, so the whole run sees one configuration. Resolve it
 once up front and keep it in view:
@@ -51,8 +51,8 @@ with `/sdet-config init`") and continue; configuration is never a blocker.
 Non-negotiables for this whole skill:
 
 - **Never write to state files by hand.** `.sdet/state.json`, `.sdet/snapshots/`, `.sdet/history/`
-  and the script-managed test-case fields (`automation`, `last_execution`) change only through
-  `$SDET`. You author test-case *content*; the script owns tracking.
+  and the script-managed test-case fields (`automation`, `last_execution`, `linked_issues`) change
+  only through `$SDET`. You author test-case *content*; the script owns tracking.
 - **Identity is the spec `id`, never the filename.** Never create a second record, test-case file,
   or spec file for an id that already exists.
 - **Config gates coverage.** When `testing.security` is false: no security test cases, no security
@@ -131,9 +131,9 @@ tags to that test instead of writing a second one. Never duplicate a test that e
 **5. Automate what is missing.** Collect the Active cases whose `automation_status` is
 `Not Automated` or `Needs Update` (and whose dimension is enabled). Hand them to the authoring
 agents for each **enabled automation layer**, passing the test-case file path and the explicit list
-of TC ids. The layers come from the resolved config (`testing.ui`, `testing.api`, `testing.visual`),
+of TC ids. The layers come from the resolved config (`testing.functional`, `testing.api`, `testing.visual`),
 never from how a case is worded:
-- `testing.ui` → **test-writer** (automation mode, §0a) for the UI half. `API`-type cases are not
+- `testing.functional` → **test-writer** (automation mode, §0a) for the UI half. `API`-type cases are not
   given to it.
 - `testing.api` → **api-test-writer** (traceability rules in its §10) for the API half of the same
   cases, plus every `API`-type case. If `api.collection` is set, pass that path so it imports (its
@@ -147,7 +147,7 @@ agree on test data: whichever half creates a record, the others use its id (the 
 the exact record the UI half created, and the visual half reuses the UI half's `storageState`, data,
 navigation and Page Objects). If every layer is off, generate and commit the test cases but mark
 this step skipped in the report. An `API`-type case with the API layer off stays `Not Automated`,
-and a UI-only case with the UI layer off does the same.
+and a UI-only case with the functional (UI) layer off does the same.
 
 Each test must carry the traceability tags `@<SPEC_ID>` and `@<TC_ID>` (plus `@security` /
 `@accessibility` for those types). Afterwards run `$SDET trace <ID> --write` — it must exit 0 (every
@@ -162,21 +162,35 @@ its objective — never silently dropped.
 `$SDET run-args <ID>` (for a delta, `$SDET run-args --tc <affected TC ids>`). It scopes by tag,
 excludes disabled dimensions, and writes a JSON report to `.sdet/results/last-run.json` alongside the
 project's normal artifacts. Have **test-runner** run that exact command and diagnose every failure
-with the existing taxonomy (`automation-knowledge/failures/README.md`). Then:
-- `$SDET results ingest` — maps results back to test cases via tags.
-- For every failed case: `$SDET results classify <TC_ID> <CATEGORY>` with test-runner's category.
-  The report rolls categories up as Application Defect / Test Defect / Automation-Locator Issue /
-  Environment Issue / Test Data Issue / Unknown.
-- `APPLICATION_DEFECT` (or a genuine `VISUAL_REGRESSION`) → **bug-reporter** files it; then
-  `$SDET results classify <TC_ID> APPLICATION_DEFECT --issue <BUG-ID>`. The test stays as written.
-  When more than one layer ran, tell bug-reporter where the defect showed up: the UI side, the API
-  side, or a mismatch between them. For a visual regression, pass the expected, actual and diff
-  images along with visual-test-writer's description of what changed.
+with the existing taxonomy (`automation-knowledge/failures/README.md`). Then update the test cases
+with the outcome — every executed case ends the run with an **Execution Status**, a **Test
+Status**, an **Actual Result** and its **Linked Issues**:
+- `$SDET results ingest` — maps results back to test cases via tags and records the run. The script
+  derives Execution Status (`Executed` / `Not Executed`) and Test Status (`Pass` / `Fail` /
+  `Blocked` / `Flaky` / `Not Run`), and writes the actual result for passes, skips and flaky
+  passes. A failure's actual result is never guessed from the error; it comes from the diagnosis.
+- For every failed or flaky case: `$SDET results classify <TC_ID> <CATEGORY> --actual "<test-runner's
+  ACTUAL RESULT line>"`. The actual result is written for business readers: what a person would see,
+  no error text, selectors or status codes (the raw error is kept separately as Technical Details).
+  A failure classified as an environment, test-data or automation problem becomes `Blocked` — the
+  product could not be verified — never `Fail`. The report rolls categories up as Application
+  Defect / Test Defect / Automation-Locator Issue / Environment Issue / Test Data Issue / Unknown.
+- `APPLICATION_DEFECT` (or a genuine `VISUAL_REGRESSION`) → **bug-reporter** files it (or bumps /
+  regresses an existing bug for the same case), passing the TC id and the test-case file so the
+  bug links back to it. Then use its `TEST CASE UPDATE` line:
+  `$SDET results classify <TC_ID> APPLICATION_DEFECT --issue BUG-<NNN> --actual "<its actual line>"`.
+  This links the bug file to the test case (the rendered test case shows the bug's live title and
+  status); `--issue` also takes a tracker URL or key, and may be repeated. The test stays as
+  written. When more than one layer ran, tell bug-reporter where the defect showed up: the UI side,
+  the API side, or a mismatch between them. For a visual regression, pass the expected, actual and
+  diff images along with visual-test-writer's description of what changed.
 - A visual diff classified as an **intended change** is not a bug. Put visual-test-writer's
   `/update-baselines` proposal in the report and leave the baseline alone, so a human decides.
 - Automation-side failures → back to the authoring agent to fix the root cause (never by weakening
   an assertion, skipping, or adding sleeps), re-run once via the same `run-args` command, re-ingest.
 - Environment / test-data failures → report; do not touch the test.
+- `$SDET results pending <ID>` must print `OK` before moving on: it lists every failure still
+  missing a classification or an actual result, and every defect missing its linked bug.
 `$SDET state stage <ID> EXECUTED`
 
 **7. Review.** When the relevant tests pass (or fail only on genuine application defects), hand the
@@ -291,7 +305,8 @@ Never modify a test simply because it failed, never re-record a visual baseline 
 
 ## 7. Report
 
-Print `$SDET report <processed IDs>`, then add, in plain words: per spec, what was classified and
+Print `$SDET report <processed IDs>` (each failure shows its test status, actual result and linked
+issues; the rendered test-cases `.md` has the full Execution Results table), then add, in plain words: per spec, what was classified and
 what was done (created / updated / unchanged — "no duplication" for an unchanged spec), any spec vs
 application contradictions, bugs filed, anything skipped and why (missing id declined, duplicate id,
 blocked environment), and every warning. Disabled dimensions are reported only as `Disabled`, never

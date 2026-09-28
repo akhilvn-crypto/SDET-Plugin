@@ -138,7 +138,21 @@ is available.
 **Command run** — exact command(s) and scope.
 **Result** — pass/fail counts, duration.
 **Failures** — for each: test name, its test-case id if it carries an `@<SPEC_ID>-TCnn` tag,
-classification (per §4), root-cause explanation, and the path to its screenshot/trace/video/HAR.
+classification (per §4), root-cause explanation, the path to its screenshot/trace/video/HAR, and
+an **actual result** line:
+
+```
+ACTUAL RESULT: <SPEC_ID-TCnn> | <CATEGORY> | <one or two plain sentences>
+```
+
+The actual result is recorded on the test case, which business stakeholders read, so write it the
+way a person watching the screen would describe it: what they did and what they saw, quoting
+on-screen text — "After pressing **Sign In** with a wrong password, the page stayed on the sign-in
+form and no message appeared." Never paste the error, a selector, a status code or a timeout
+value; the raw error is already kept separately as technical detail. When the failure is not the
+product's fault, say that plainly and why the case could not be checked — "The test environment
+did not respond, so sign-in could not be checked." The same applies to a flaky test that you
+classify.
 **Flaky tests** — any test whose outcome changed across retries.
 **Recommendation** — who should fix it (automation vs. application) and what the fix likely is;
 note explicitly if multiple failures point at one shared/systemic root cause; do not weaken or

@@ -15,7 +15,6 @@ const PROJECT_CONFIG_NAME = 'sdet.config.json';
 
 // Shorthand runtime flags -> dotted config keys.
 const SHORTHAND = {
-  ui: 'testing.ui',
   functional: 'testing.functional',
   security: 'testing.security',
   accessibility: 'testing.accessibility',
@@ -96,10 +95,15 @@ function coerce(raw, template) {
 }
 
 // Accept `spec.root: "x"` (single root, as in the design doc) as an alias of `spec.roots: ["x"]`.
+// Legacy `testing.ui` is folded into `testing.functional` (functional = UI automation via Playwright).
 function normalize(config) {
   if (config.spec && typeof config.spec.root === 'string') {
     config.spec.roots = [config.spec.root];
     delete config.spec.root;
+  }
+  if (config.testing && 'ui' in config.testing) {
+    if (config.testing.functional === undefined) config.testing.functional = config.testing.ui;
+    delete config.testing.ui;
   }
   return config;
 }
@@ -184,11 +188,8 @@ function validateConfig(config, defaults = loadDefaults()) {
     errors.push(`execution.onUnchanged must be one of ${ON_UNCHANGED.join(', ')}.`);
   }
   const testing = config.testing || {};
-  if (testing.functional === false && !testing.security && !testing.accessibility) {
-    warnings.push('Every testing dimension is disabled - /sdet will have nothing to generate.');
-  }
-  if (!testing.ui && !testing.api && !testing.visual) {
-    warnings.push('testing.ui, testing.api and testing.visual are all false - test cases will be generated but nothing will be automated.');
+  if (!testing.functional && !testing.api && !testing.visual) {
+    warnings.push('testing.functional, testing.api and testing.visual are all false - test cases will be generated but nothing will be automated.');
   }
   const collection = config.api && config.api.collection;
   if (collection != null && typeof collection !== 'string') errors.push('"api.collection" must be a file path or null.');

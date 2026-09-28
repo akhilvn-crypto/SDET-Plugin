@@ -86,6 +86,17 @@ restarting.
   reused; removed requirements mark cases `Obsolete`, never delete them.
 - **Automation** is linked to test cases by Playwright tags (`@<SPEC_ID>`, `@<SPEC_ID>-TC01`,
   plus `@security` / `@accessibility`), not by filenames.
+- **Results go back onto the test cases.** After every `/sdet` or `/runtest` run each executed case
+  carries an **Execution Status** (Executed / Not Executed), a **Test Status** (Pass / Fail /
+  Blocked / Flaky / Not Run — *Blocked* when an environment, test-data or automation problem meant
+  the product could not be checked), a plain-language **Actual Result**, and its **Linked Issues** —
+  links to the `bugs/BUG-<NNN>.md` files (or tracker URLs) that show each bug's current title and
+  status. The rendered test-cases `.md` gets an Execution Results table. A run is not closed while
+  any failure lacks a classification, an actual result, or (for a defect) a linked bug.
+- **Bug reports are written for business readers.** `bug-reporter` fills `templates/bug.template.md`:
+  summary, business impact, plain steps to reproduce, expected vs actual, and *why this is a
+  defect* come first in everyday language; the evidence (errors, trace, HAR, API
+  request/response) goes in a separate *Technical details* section for developers.
 - **State** is in `.sdet/` (`state.json`, spec snapshots for change diffs, test-case history).
   Commit it with the test cases; gitignore `.sdet/results/`.
 - **Security and accessibility** coverage is generated, executed and reported only when enabled in
