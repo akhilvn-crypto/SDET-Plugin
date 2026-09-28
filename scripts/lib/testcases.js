@@ -18,6 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { readJson, writeJson, writeText, rel, today, escapeRegex, UsageError } = require('./util');
 const ex = require('./execution');
+const wb = require('./testcase-workbook');
 
 const TEST_TYPES = ['Positive', 'Negative', 'Validation', 'Boundary', 'Edge', 'Permission', 'Integration', 'Security', 'Accessibility', 'Database', 'API'];
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -295,12 +296,6 @@ function issueLinks(tc, cwd, mdDir, config) {
     .join('; ');
 }
 
-function actualResultOf(e) {
-  if (!e) return '';
-  if (e.actual_result) return e.actual_result;
-  return e.status === 'Failed' ? 'Pending diagnosis - see Technical Details.' : '';
-}
-
 function renderMarkdown(doc, { config, cwd = process.cwd(), mdFile = null }) {
   const mdDir = mdFile ? path.dirname(mdFile) : cwd;
   const meta = doc.meta || {};
@@ -356,7 +351,7 @@ function renderMarkdown(doc, { config, cwd = process.cwd(), mdFile = null }) {
           ['TC ID', 'Title', 'Execution Status', 'Test Status', 'Actual Result', 'Linked Issues', 'Last Executed'],
           active.map((tc) => {
             const e = tc.last_execution;
-            return [tc.tc_id, tc.title, ex.executionStatusOf(e), ex.testStatusOf(e), actualResultOf(e), issueLinks(tc, cwd, mdDir, config), e ? e.at.slice(0, 16).replace('T', ' ') : ''];
+            return [tc.tc_id, tc.title, ex.executionStatusOf(e), ex.testStatusOf(e), ex.actualResultOf(e), issueLinks(tc, cwd, mdDir, config), e ? e.at.slice(0, 16).replace('T', ' ') : ''];
           })
         )
       : '_Not executed yet._',
@@ -381,7 +376,7 @@ function renderMarkdown(doc, { config, cwd = process.cwd(), mdFile = null }) {
       ['Execution Status', ex.executionStatusOf(tc.last_execution)],
       ['Test Status', ex.testStatusOf(tc.last_execution)],
       ['Last Executed', executed ? `${e.at.slice(0, 16).replace('T', ' ')}${e.project ? ` (${e.project})` : ''}` : ''],
-      ['Actual Result', actualResultOf(tc.last_execution)],
+      ['Actual Result', ex.actualResultOf(tc.last_execution)],
       ['Failure Classification', e.classification ? `${ex.CLASSIFICATION_BUCKETS[e.classification] || 'Unknown'} (${e.classification})` : ''],
       ['Linked Issues', issueLinks(tc, cwd, mdDir, config)],
       ['Technical Details', ['Failed', 'Flaky'].includes(e.status) ? e.error : ''],
@@ -410,7 +405,21 @@ function writeDoc(file, doc) {
 function writeMarkdown(file, doc, ctx) {
   const mdFile = file.replace(/\.json$/, '.md');
   writeText(mdFile, renderMarkdown(doc, { ...ctx, mdFile }));
+  // Once exported, the Excel workbook is kept in step with every re-render. A workbook that
+  // can't be rewritten (typically: open in Excel) must not fail the run that recorded results.
+  if (fs.existsSync(wb.xlsxPathFor(file))) {
+    try {
+      wb.writeWorkbook(file, doc, { cwd: ctx.cwd });
+    } catch (e) {
+      console.error(`warning: could not refresh ${path.basename(wb.xlsxPathFor(file))} (${e.code || e.message}) - close it in Excel and run "testcases export ${doc.meta.spec_id}".`);
+    }
+  }
   return mdFile;
+}
+
+/** Write the Excel workbook next to the JSON (see testcase-workbook.js). */
+function writeWorkbook(file, doc, ctx = {}) {
+  return wb.writeWorkbook(file, doc, ctx);
 }
 
 module.exports = {
@@ -430,5 +439,6 @@ module.exports = {
   renderMarkdown,
   writeDoc,
   writeMarkdown,
+  writeWorkbook,
   UsageError,
 };

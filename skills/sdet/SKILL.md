@@ -23,6 +23,7 @@ Arguments (all optional):
 | `--functional=true\|false` (UI), `--api=true\|false`, `--visual=true\|false` | Choose which automation layers run (§3.5), for this run only. |
 | `--collection <path>` | Drive the API layer from a Postman / OpenAPI / Insomnia file (sets `api.collection`). Only used when the API layer is on. |
 | `--security=true\|false`, `--accessibility=true\|false`, `--set <key>=<value>` | Override `sdet.config.json` for this run only. |
+| `--excel` | Also convert each processed spec's test cases to an Excel workbook in the Emvigo controlled-document layout (§3.9). Combined with `--list` or `--report`, it only exports - see §1. |
 
 Every automation run goes through this command. There is no separate single-case command: to
 automate or re-automate specific cases, use `--spec` for their spec. A case already marked
@@ -70,6 +71,10 @@ Non-negotiables for this whole skill:
 - `--report` → run `$SDET report [<ID>...]`, show it, stop.
 - `--dry-run` → run `$SDET specs discover [--spec …]` and, for each spec, state what §2 would do
   (and for a CHANGED spec, `$SDET specs diff <ID>`). Stop without writing anything.
+
+- `--excel` with `--list` → export only: `$SDET testcases export <ID>` for every spec the list shows
+  with test cases (or only the `--spec` ones), report the paths, stop. With `--report [<ID>...]`,
+  export those ids after printing the report. Nothing is regenerated.
 
 None of these need an execution-log entry.
 
@@ -201,6 +206,19 @@ mapping from the tags, snapshots the spec (for the next change diff), archives t
 version, computes the new/updated/unchanged/obsoleted delta, and sets `AUTOMATED` or
 `AUTOMATION_INCOMPLETE`. Fix and re-commit on any error; surface its warnings.
 
+**9. Excel export** (only when `--excel` was passed). `$SDET testcases export <ID>` writes
+`<SPEC_ID>.test-cases.xlsx` next to the JSON and `.md`: the same three-sheet workbook qa-analyst's
+`/generate-test-cases --xlsx` produces (Document Version Control with the project logo from
+`Branding/project-logo.png` when present, Document Release History, Test Cases with one row per
+case, numbered steps, and the automation/execution columns: Automation Status, Actual Result,
+Execution Status, Test Status, Linked Issue). It is built from the same JSON as the `.md`, so the
+two always match; it is never read back, so a correction goes in the JSON, not the workbook. Once
+it exists, every later re-render (`results ingest`, `results classify`, `testcases render`,
+`state commit`, including `/runtest` runs) refreshes it automatically. If a refresh prints
+`warning: could not refresh ...` (the file is open in Excel), tell the user to close it and re-run
+the export. Also run it for an `UNCHANGED` spec when `--excel` was given - the export is cheap and
+needs no regeneration. List every workbook path in the report.
+
 ## 4. Delta workflow (CHANGED)
 
 1. `$SDET specs diff <ID>` — requirement-level delta (items added/removed per section, changed
@@ -220,7 +238,7 @@ version, computes the new/updated/unchanged/obsoleted delta, and sets `AUTOMATED
 5. Automate only `Not Automated` / `Needs Update` cases; ask test-writer to **remove** the automated
    tests of obsoleted cases (found by tag) — `$SDET trace <ID>` warns while any remain. Then §3.5's
    trace/`set-status` steps.
-6. Execute only the affected cases: `$SDET run-args --tc <new + updated TC ids>`, then §3.6–3.8.
+6. Execute only the affected cases: `$SDET run-args --tc <new + updated TC ids>`, then §3.6–3.9.
 
 ## 5. Test-case structure (qa-analyst shape)
 

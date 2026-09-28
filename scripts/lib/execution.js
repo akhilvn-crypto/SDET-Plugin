@@ -59,6 +59,13 @@ function defaultActualResult(e) {
   return null; // a failure's actual result is written from the diagnosis, never guessed here
 }
 
+/** The actual result a report shows: the recorded one, or a placeholder while a failure awaits diagnosis. */
+function actualResultOf(e) {
+  if (!e) return '';
+  if (e.actual_result) return e.actual_result;
+  return e.status === 'Failed' ? 'Pending diagnosis - see Technical Details.' : '';
+}
+
 /** Recompute the derived fields of a last_execution record in place. */
 function derive(e) {
   e.execution_status = executionStatusOf(e);
@@ -153,6 +160,7 @@ module.exports = {
   EXECUTION_STATUSES,
   executionStatusOf,
   testStatusOf,
+  actualResultOf,
   derive,
   issueRef,
   linkIssues,

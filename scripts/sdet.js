@@ -16,6 +16,7 @@
  *   specs     discover [--spec <path>]... [--json] | list [--json] | assign-id <file> [--id <ID>] | diff <ID> [--json]
  *   state     stage <ID> <STAGE> [--spec <path>] [--source autonomous --name "<area>"] [--note "..."] | relocate <ID> [--spec <path>] | commit <ID> [--spec <path>] | show <ID>
  *   testcases init <ID> [--source autonomous --name "<area>"] | path <ID> | validate <ID> | render <ID>
+ *             export <ID | *.test-cases.md | *.test-cases.json>   (Excel workbook, Emvigo layout)
  *             set-status <ID> --tc <TC,...> --status "<automation status>"
  *   trace     [<ID>...] [--write] [--json]
  *   run-args  [<ID>...] [--tc <TC,...>] [--json]
@@ -355,6 +356,7 @@ function cmdTestcases(sub, positional, flags) {
     out(`Created ${rel(cwd, file)}`);
     return 0;
   }
+  if (sub === 'export') return exportWorkbook(config, state, id), 0;
   const { file, doc } = loadDocOrFail(config, state, id);
   if (sub === 'validate') {
     const { errors, warnings } = tcs.validateDoc(doc, { id, config, record: state.specs[id] });
@@ -379,6 +381,29 @@ function cmdTestcases(sub, positional, flags) {
     return 0;
   }
   throw new UsageError(`Unknown testcases command "${sub}".`);
+}
+
+/**
+ * Convert a spec's test cases to the Excel workbook. Takes the spec id or the rendered .md / the
+ * .json itself; the workbook is always built from the JSON (the .md is rendered from it too), so
+ * the two show the same thing. Valid content is required - the same bar as rendering for review.
+ */
+function exportWorkbook(config, state, target) {
+  let file;
+  let doc;
+  if (/\.(md|json)$/i.test(target)) {
+    file = path.resolve(cwd, target.replace(/\.md$/i, '.json'));
+    doc = readJson(file, null);
+    if (!doc) throw new UsageError(`No test-case JSON at ${rel(cwd, file)} - the Excel workbook is built from the JSON the .md is rendered from.`);
+  } else {
+    ({ file, doc } = loadDocOrFail(config, state, target));
+  }
+  const id = doc.meta && doc.meta.spec_id;
+  if (!id) throw new UsageError(`${rel(cwd, file)} has no meta.spec_id - not a test-case document.`);
+  const { errors } = tcs.validateDoc(doc, { id, config, record: state.specs[id] });
+  if (errors.length) throw new UsageError(`Test cases for ${id} are invalid - fix before exporting:\n${errors.map((e) => `  - ${e}`).join('\n')}`);
+  const xlsx = tcs.writeWorkbook(file, doc, { cwd });
+  out(`Exported ${rel(cwd, xlsx)} (${doc.test_cases.length} test cases, from ${rel(cwd, file)}). It is refreshed automatically whenever the .md is re-rendered.`);
 }
 
 // ------------------------------------------------------------------ trace

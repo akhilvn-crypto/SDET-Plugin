@@ -69,6 +69,8 @@ restarting.
 /sdet-pipeline:sdet --list                          # specs + automation state
 /sdet-pipeline:sdet --accessibility=true            # override the config for one run
 /sdet-pipeline:sdet --api=true --collection ./postman/orders.json   # add the API layer, driven from a collection
+/sdet-pipeline:sdet --excel                         # also export each spec's test cases to Excel (Emvigo layout)
+/sdet-pipeline:sdet --list --excel                  # export only: convert the existing test cases, regenerate nothing
 ```
 
 - **Automation layers** are set in `sdet.config.json` under `testing`: `ui` (on by default),
@@ -84,6 +86,15 @@ restarting.
   shape, extended with `spec_id`, `security_relevance`, `accessibility_relevance`,
   `automation_status`) with a rendered `.md` beside it. Case ids (`<SPEC_ID>-TC01`) are never
   reused; removed requirements mark cases `Obsolete`, never delete them.
+- **Excel export (`--excel`).** Writes `test-cases/<SPEC_ID>.test-cases.xlsx` beside the JSON and
+  `.md`: the same three-sheet Emvigo controlled-document workbook as qa-analyst's
+  `/generate-test-cases --xlsx` (Document Version Control with the logo from
+  `Branding/project-logo.png` if present, Document Release History, and Test Cases with one row per
+  case plus Automation Status, Actual Result, Execution Status, Test Status and Linked Issue).
+  It shows the same content as the `.md` and is refreshed automatically on every later run once it
+  exists. It is output only, never read back. Standalone:
+  `node scripts/sdet.js testcases export <SPEC_ID | path/to/X.test-cases.md>`. No dependencies
+  are needed.
 - **Automation** is linked to test cases by Playwright tags (`@<SPEC_ID>`, `@<SPEC_ID>-TC01`,
   plus `@security` / `@accessibility`), not by filenames.
 - **Results go back onto the test cases.** After every `/sdet` or `/runtest` run each executed case
