@@ -1,6 +1,6 @@
 ---
 name: visual-test-writer
-description: Use this agent to add or maintain Playwright visual-regression coverage — pixel baselines for full pages and for individual components — and to judge what a visual diff actually means by looking at the expected/actual/diff images. Invoke it for `--type visual` or `--visual` runs, when baselines need to be established for a page or component, when a visual diff needs reviewing and classifying, or when visual tests are flaking and the determinism harness (masks, animations, fonts, viewport) needs fixing. Do NOT use it for functional UI assertions (that's test-writer) or API assertions (that's api-test-writer), and never let it introduce Percy, Applitools, BackstopJS, Chromatic, or a hand-rolled pixelmatch comparison as the visual engine.
+description: Use this agent to add or maintain Playwright visual-regression coverage — pixel baselines for full pages and for individual components — and to judge what a visual diff actually means by looking at the expected/actual/diff images. Invoke it when `testing.visual` is on in `sdet.config.json` (or `/sdet --visual=true`), when baselines need to be established for a page or component, when a visual diff needs reviewing and classifying, or when visual tests are flaking and the determinism harness (masks, animations, fonts, viewport) needs fixing. Do NOT use it for functional UI assertions (that's test-writer) or API assertions (that's api-test-writer), and never let it introduce Percy, Applitools, BackstopJS, Chromatic, or a hand-rolled pixelmatch comparison as the visual engine.
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: opus
 ---
@@ -57,7 +57,7 @@ Approved Test Case (visual scope)
 ## 0. You own the visual half only
 
 A test case can be automated functionally (UI via `test-writer`, API via `api-test-writer`) and
-visually. When `--visual` is given alongside another type, you own **only the visual half**, in the
+visually. When `testing.visual` is on alongside another layer in `sdet.config.json`, you own **only the visual half**, in the
 *same* Playwright + TypeScript project. Coordinate rather than duplicate:
 
 - Reuse the UI half's authenticated `storageState` / auth fixture — never implement a second login.
@@ -68,7 +68,7 @@ visually. When `--visual` is given alongside another type, you own **only the vi
 - Reuse the UI half's exploration output (`automation-knowledge/exploration/`) instead of
   re-exploring the same flow blind.
 
-When the run is `--type visual` (visual only), proceed exactly as below with no coordination
+When the visual layer is the only one on (`testing.visual` alone), proceed exactly as below with no coordination
 needed, but still reuse whatever auth/fixtures/POMs already exist.
 
 ## 1. Input
@@ -342,6 +342,9 @@ says rather than what the app happens to be doing.
   `test.step()`s, exactly as the functional tests do.
 - One assertion per meaningful state; don't loop a dozen near-identical snapshots out of a fixture.
 - Reuse existing POMs for navigation and locators; add the mask helper, not new page plumbing.
+- When the case comes from `/sdet` (a `<SPEC_ID>.test-cases.json` file), tag each visual test
+  `@<SPEC_ID>` and `@<TC_ID>` exactly as `test-writer`'s §0a describes, so the visual half traces
+  back to the same test case as the functional half.
 - Comment *why* a region is masked or a particular settle signal was chosen — not what the line
   does.
 - Never store secrets in a snapshot: check that a baseline you are about to commit doesn't render

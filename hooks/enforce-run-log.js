@@ -2,7 +2,7 @@
 /**
  * Stop hook: makes sure the execution log actually gets written every time a
  * pipeline command runs, instead of relying on the agent to remember the last
- * step of /automate, /runtest, or /review-automation.
+ * step of /sdet, /runtest, /review-automation, or /update-baselines.
  *
  * Logic (deliberately ordering-based, not timestamp-based - transcript order
  * is already chronological, so there's nothing to parse or trust a clock for):
@@ -11,7 +11,7 @@
  *      as JSON and only counted when it's a real top-level command turn: the
  *      envelope's own `type` is "user", it carries no `toolUseResult` (that
  *      key only appears on a tool_result turn), and `message.content` is a
- *      plain string starting with "<command-name>/automate</command-name>"
+ *      plain string starting with "<command-name>/sdet</command-name>"
  *      (etc). This deliberately does NOT do a raw substring/regex scan across
  *      the whole line - this hook's own source doubles as documentation (see
  *      the tag example right here in this comment), so a raw scan
@@ -39,10 +39,14 @@ const fs = require('fs');
 
 const MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024; // skip enforcement on unreasonably large transcripts
 // A plugin-provided command shows up in the transcript namespaced, e.g.
-// "/sdet-pipeline:automate" rather than "/automate" — the optional
+// "/sdet-pipeline:runtest" rather than "/runtest" — the optional
 // "(?:[\w.-]+:)?" prefix matches either form so this works whether the pipeline
 // is running from this plugin or from a plain project-level .claude/commands/.
-const PIPELINE_COMMAND_RE = /^\s*<command-name>\s*\/(?:[\w.-]+:)?(automate-api|automate|runtest|review-automation|update-baselines)\b/i;
+// The trailing (?![\w-]) (rather than \b) keeps "/sdet" from also matching "/sdet-config",
+// which only edits configuration and never records a run.
+const PIPELINE_COMMAND_RE = /^\s*<command-name>\s*\/(?:[\w.-]+:)?(runtest|review-automation|update-baselines|sdet)(?![\w-])/i;
+// /sdet's read-only forms (listing, reporting, planning) change nothing, so they owe no log entry.
+const READ_ONLY_SDET_ARGS_RE = /<command-args>[^<]*--(list|report|dry-run)(?![\w-])/i;
 const RECORD_RUN_RE = /record-run\.js/;
 
 // True only for a real top-level user command turn, never a tool_result (or
@@ -53,7 +57,9 @@ function genuinePipelineCommand(entry) {
   const content = entry.message && entry.message.content;
   if (typeof content !== 'string') return null;
   const match = content.match(PIPELINE_COMMAND_RE);
-  return match ? `/${match[1]}` : null;
+  if (!match) return null;
+  if (match[1].toLowerCase() === 'sdet' && READ_ONLY_SDET_ARGS_RE.test(content)) return null;
+  return `/${match[1]}`;
 }
 
 // True only for a real Bash tool_use call, never a transcript line that
@@ -136,7 +142,7 @@ process.stdin.on('end', () => {
     [
       `Blocked stop: the last ${lastPipelineCommand} run has not recorded its execution log yet.`,
       `Before ending this turn, run node ${recordRunPath} as the final step of that command`,
-      `(see the ${lastPipelineCommand.slice(1)} skill's SKILL.md, step 4, for the exact invocation -`,
+      `(see the ${lastPipelineCommand.slice(1)} skill's SKILL.md, "Record the run" step, for the exact invocation -`,
       "remember MSYS_NO_PATHCONV=1 on Windows/Git Bash since --command starts with '/').",
     ].join('\n')
   );

@@ -2,7 +2,7 @@
 /**
  * Appends/overwrites the execution log at the CALLING PROJECT's root: .lastrun.json
  *
- * Called as the last step of a pipeline command (/automate, /automate-api, /update-baselines,
+ * Called as the last step of a pipeline command (/sdet, /update-baselines,
  * /runtest, /review-automation) once the run's outcome is known. Deliberately a plain
  * script rather than left to the agent to compose by hand: the timestamp,
  * authority lookup, and changed-file list must be exact, not guessed.
@@ -10,16 +10,17 @@
  * This file ships inside the sdet-pipeline plugin (scripts/record-run.js) and is invoked
  * with the target project as the working directory, e.g.:
  *   node "${CLAUDE_PLUGIN_ROOT}/scripts/record-run.js" \
- *     --pipeline automate \
- *     --command "/automate TC-102 login with valid credentials" \
- *     --agents test-writer,code-reviewer \
+ *     --pipeline sdet \
+ *     --command "/sdet --spec specs/auth/login.yaml" \
+ *     --agents test-writer,test-runner,code-reviewer \
  *     --status pass \
- *     --summary "TC-102 automated; regression 42/42 passed" \
+ *     --summary "1 spec: 1 new; tests 6/6 passed" \
  *     [--files-added a.ts,b.ts] [--files-modified c.ts] [--files-deleted d.ts] \
  *     [--lessons-recorded "automation-knowledge/failures/FL-004.md"] \
  *     [--bugs-new BUG-004] [--bugs-still-open BUG-002,BUG-003] \
  *     [--bugs-fixed BUG-001] [--bugs-regressed BUG-005] \
  *     [--runner-name "Jane Doe"] [--runner-role "QA Engineer"] \
+ *     [--specs MAGENTO-LOGIN-001,AUTO-CHECKOUT] \
  *     [--out path/to/.lastrun.json] [--runner-config path/to/authors.json]
  *
  * --runner-name/--runner-role are asked of the user at the start of /runtest (see
@@ -175,7 +176,7 @@ function main() {
   const args = parseArgs(process.argv.slice(2));
 
   if (!args.pipeline || !args.command) {
-    console.error('Usage: record-run.js --pipeline <automate|automate-api|runtest|review-automation|update-baselines> --command "<text>" [options]');
+    console.error('Usage: record-run.js --pipeline <sdet|runtest|review-automation|update-baselines> --command "<text>" [options]');
     process.exit(1);
   }
 
@@ -256,6 +257,8 @@ function main() {
         fixed: csv(args['bugs-fixed']),
         regressed: csv(args['bugs-regressed']),
       },
+      // Spec/area ids a /sdet run processed; their lifecycle detail lives in .sdet/state.json.
+      specs: csv(args.specs),
     },
   };
 

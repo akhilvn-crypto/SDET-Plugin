@@ -7,18 +7,18 @@ product bugs, code review for automation-code issues.
 ## What it does
 
 Six sub agents (`test-writer`, `api-test-writer`, `visual-test-writer`, `test-runner`,
-`bug-reporter`, `code-reviewer`) work together behind five pipeline commands, guarded by hooks
+`bug-reporter`, `code-reviewer`) work together behind four pipeline commands (plus `/sdet-config`), guarded by hooks
 that block secret leaks, block `.env` commits, and enforce an execution-log entry for every run.
 
 | Command | What it does |
 |---|---|
-| `/automate <test case>` | Full pipeline for one approved test case — writes the test (UI by default; API-only, balanced, or with visual-regression coverage when asked), runs it, then routes to `bug-reporter` (real bug) or `code-reviewer` (bad test code). |
-| `/automate-api <test case>` | Same pipeline, API-only — can be driven from a Postman/OpenAPI/Insomnia collection with `--collection <path>`. |
 | `/runtest [scope]` | Asks who's running the test and their role, then runs the existing Playwright suite (or a file/`@tag` subset) and diagnoses any failures. |
 | `/review-automation [path]` | Reviews Playwright + TypeScript automation code quality (defaults to the current git diff). |
+| `/sdet [--spec <path>] [--explore] [--list]` | The one automation command. Spec-aware pipeline: discovers specifications (or explores autonomously when there are none), explores the app, generates traceable test cases, creates/updates only the automation that's missing or affected, runs it, routes real bugs to `bug-reporter` and passing code to `code-reviewer`, and keeps Spec → Test Case → Automation → Result state. Which layers it automates (UI, API, visual) comes from `sdet.config.json`. Safe to re-run: unchanged specs produce no duplicates. |
+| `/sdet-config [init\|show\|set\|validate]` | Creates/edits the central `sdet.config.json` — spec folders, UI/API/visual automation layers, API collection, security/accessibility toggles, output paths, execution behaviour. |
 | `/update-baselines [scope]` | Reviews every failing visual snapshot by reading its expected/actual/diff images, refuses to re-record a genuine regression, and regenerates only the baselines you confirm are intended. |
 
-Claude also auto-invokes the matching skill from plain language (e.g. "automate TC-102") — no
+Claude also auto-invokes the matching skill from plain language (e.g. "automate the login spec") — no
 slash command required.
 
 ## Install into your Claude ecosystem
@@ -50,16 +50,48 @@ restarting.
 ## Running the pipeline
 
 ```
-/sdet-pipeline:automate TC-102
-/sdet-pipeline:automate-api TC-201 --collection ./postman/orders.json
+/sdet-pipeline:sdet
 /sdet-pipeline:runtest
 /sdet-pipeline:runtest @smoke
 /sdet-pipeline:review-automation
-/sdet-pipeline:automate TC-310 --type balanced --visual
 /sdet-pipeline:update-baselines tests/dashboard.visual.spec.ts
 ```
 
 (Commands are namespaced by plugin name once installed; plain-language requests work too.)
+
+## Spec-driven testing (`/sdet`)
+
+```
+/sdet-pipeline:sdet-config init                     # one-time: creates sdet.config.json (asks for spec folders, UI/API/visual layers, security, accessibility)
+/sdet-pipeline:sdet                                 # discover specs under spec.roots and process them
+/sdet-pipeline:sdet --spec client-a/auth/login.md   # one spec (or a folder) — takes precedence over discovery
+/sdet-pipeline:sdet --explore                       # no spec: autonomous exploration
+/sdet-pipeline:sdet --list                          # specs + automation state
+/sdet-pipeline:sdet --accessibility=true            # override the config for one run
+/sdet-pipeline:sdet --api=true --collection ./postman/orders.json   # add the API layer, driven from a collection
+```
+
+- **Automation layers** are set in `sdet.config.json` under `testing`: `ui` (on by default),
+  `api` and `visual`. Turn on any combination: UI + API gives balanced coverage of the same case,
+  and adding visual puts pixel baselines on top. `api.collection` points the API layer at a
+  Postman / OpenAPI / Insomnia file.
+
+- **Specs** are Markdown (YAML frontmatter), YAML or JSON anywhere under the configured roots, each
+  with a stable `id` and a `version` — see `templates/spec.example.yaml` / `spec.example.md`.
+  They describe what to test, never selectors. Moving or renaming a spec file is safe; the `id` is
+  its identity. A spec without an id is never processed silently — you confirm the id first.
+- **Test cases** live in `test-cases/<SPEC_ID>.test-cases.json` (qa-analyst `TestCaseDocument`
+  shape, extended with `spec_id`, `security_relevance`, `accessibility_relevance`,
+  `automation_status`) with a rendered `.md` beside it. Case ids (`<SPEC_ID>-TC01`) are never
+  reused; removed requirements mark cases `Obsolete`, never delete them.
+- **Automation** is linked to test cases by Playwright tags (`@<SPEC_ID>`, `@<SPEC_ID>-TC01`,
+  plus `@security` / `@accessibility`), not by filenames.
+- **State** is in `.sdet/` (`state.json`, spec snapshots for change diffs, test-case history).
+  Commit it with the test cases; gitignore `.sdet/results/`.
+- **Security and accessibility** coverage is generated, executed and reported only when enabled in
+  `sdet.config.json` (accessibility is off by default; a spec asking for it doesn't turn it on).
+- Deterministic parts run through `scripts/sdet.js` (zero dependencies) — run it with no arguments
+  for its sub-commands.
 
 ## Attribution
 

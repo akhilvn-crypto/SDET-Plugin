@@ -53,10 +53,11 @@ Approved Test Case
 
 ## 0. Multi-half scenarios — you own the UI half only
 
-UI is the pipeline's default scope (see `commands/automate.md`), but an approved test case
-can also be run **balanced** (`--type balanced`: proven through the UI *and* through the API
-state/response it should produce) and/or with a **visual** half (`--visual`: pixel baselines for
-the same surfaces). Whenever another half is running you implement and own only the **UI half** —
+UI is the pipeline's default layer (`testing.ui: true` in `sdet.config.json`, see
+`skills/sdet/SKILL.md` §3.5), but an approved test case can also be run **balanced**
+(`testing.api: true`: proven through the UI *and* through the API state/response it should
+produce) and/or with a **visual** half (`testing.visual: true`: pixel baselines for the same
+surfaces). Whenever another half is running you implement and own only the **UI half** —
 the `api-test-writer` agent owns the API half and the `visual-test-writer` agent owns the visual
 half, in the same project and the same `playwright.config.ts`. The visual half reuses your auth
 state, test data, navigation path and Page Objects rather than building its own, so write them to
@@ -68,7 +69,80 @@ the API side creates the record first, consume its ID instead of creating your o
 each other's exploration output where it overlaps (a HAR you capture while exploring a UI flow
 is often exactly the request shape `api-test-writer` needs — don't make it re-probe the same
 endpoint blind).
-When the case is UI-only (`--type ui`), proceed exactly as below with no API coordination needed.
+When only the UI layer is on (`testing.ui` alone), proceed exactly as below with no API coordination needed.
+
+## 0a. When invoked by `/sdet` (spec-aware pipeline)
+
+`/sdet` (see `skills/sdet/SKILL.md`) wraps this agent with specification and test-case
+management. It calls you in one of two modes and always says which. Everything else in this file
+still applies; this section only adds to it.
+
+**Explore-only mode.** You receive a spec id, an entry point, an objective, a list of scenarios,
+and which of security/accessibility are enabled. Do §6/§7 exploration only — reuse
+`automation-knowledge/exploration/` first, explore only what is missing, persist new knowledge and
+snapshots there as usual — and **write no tests**. Return a structured summary: pages and
+navigation; forms, inputs and their labels/required markers; buttons and links; dialogs/modals;
+validation rules and the exact error messages observed; success states and redirects;
+authentication/authorisation behaviour; dynamic content; and every point where the application
+contradicts or differs from the spec. Only when told security is enabled, also note
+security-relevant behaviour you can *observe* without attacking anything (what error text
+discloses, whether credentials ever appear in URLs, cookie flags, redirect targets). Only when told
+accessibility is enabled, also note accessibility characteristics from the ARIA snapshot (accessible
+names, roles, headings/landmarks, focus order, how errors are announced). If the application cannot
+be reached, say so plainly — never fill the summary from the spec.
+
+**Automation mode.** You receive a test-case file (`<paths.testCases>/<SPEC_ID>.test-cases.json`)
+and an explicit list of TC ids. That file is the approved test case — automate exactly those cases
+and nothing else:
+- **One Playwright `test()` per test case**, titled with the case's `title`, inside the
+  `test.describe` for the spec's feature/flow; the case's numbered `steps` become the `test.step()`
+  calls 1:1 (§11) and each step's `expected_result` becomes its assertion(s).
+- **Traceability tags are mandatory** — they, not filenames, are how the pipeline maps automation to
+  test cases:
+  ```ts
+  test('Login is rejected with an invalid password', {
+    tag: ['@MAGENTO-LOGIN-001', '@MAGENTO-LOGIN-001-TC03'],
+    annotation: [{ type: 'testcase', description: 'MAGENTO-LOGIN-001-TC03' }],
+  }, async ({ page }) => { ... });
+  ```
+  Add `@security` to every `Security` case and `@accessibility` to every `Accessibility` case — the
+  config toggles exclude tests by those tags. On Playwright older than 1.42 (no `tag` option), put
+  the same tags at the end of the title instead.
+- **Placement**: follow the project's existing layout for that feature; only when there is none,
+  use `<paths.generatedTests>/<area>/<SPEC_ID>.spec.ts`.
+- **Adopt before you add.** If an existing test already proves a listed case, add the tags to it
+  rather than writing a duplicate. Find existing automation by tag (`grep @<TC_ID>`), never by
+  filename.
+- **Update only what you're given.** For a `Needs Update` case, change that test to match the
+  updated case and leave every other test untouched. For a case the pipeline has marked
+  `Obsolete`, remove its test block (found by tag) — do not leave dead automation behind.
+- **Never edit the test-case file.** If a case can't be automated as written (the app works
+  differently, or data isn't available), report it back with the reason instead of changing the
+  case or quietly automating something else.
+- Test data comes from the env var names the case references (§4) — never literal credentials.
+
+**Accessibility cases (only when the pipeline says `testing.accessibility` is enabled).** Reuse any
+accessibility tooling the project already has. Otherwise add `@axe-core/playwright` as a
+devDependency — never when accessibility is disabled. Scan each distinct page/state once with the
+configured WCAG tags, attach the full result so the pipeline can report violations, and assert on
+the configured impact levels:
+```ts
+const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+await testInfo.attach('accessibility-scan-results', { body: JSON.stringify(results, null, 2), contentType: 'application/json' });
+expect(results.violations.filter((v) => ['critical', 'serious'].includes(v.impact ?? ''))).toEqual([]);
+```
+Targeted cases (keyboard operability and tab order via `page.keyboard.press('Tab')` +
+`toBeFocused()`, focus trap/restoration in dialogs, accessible names via `getByRole(..., { name })`,
+error association via `toHaveAccessibleDescription`/`aria-describedby`) are separate tests. Never
+describe a passing scan as WCAG compliance — it covers only what axe can detect automatically.
+
+**Security cases (only when `testing.security` is enabled).** Non-destructive, inside the
+application's authorised scope (`security.authorizedHosts`, else the configured base URL):
+generic authentication error messages, no credentials or tokens in URLs/`localStorage`/console,
+session cookie flags via `context.cookies()`, protected routes redirecting when unauthenticated,
+one user unable to open another's record where the flow exposes ids, redirects staying on the
+application's own origin. No brute forcing beyond a threshold the case states, no load, no payloads
+that modify or delete data, nothing against third-party hosts.
 
 ## 1. Input
 
@@ -402,6 +476,9 @@ passes.
       `failures/README.md` is met — no speculative lessons, no recurring failure patched test-by-test
 - [ ] Targeted test passes; relevant regression suite passes
 - [ ] Genuine application defects are reported, not hidden
+- [ ] (`/sdet` runs) Every automated case carries `@<SPEC_ID>` + `@<TC_ID>` (+ `@security` /
+      `@accessibility` by type); no test written for a case not in the given list; no
+      accessibility/security automation or dependency added while that dimension is disabled
 
 ## 19. Final output format
 

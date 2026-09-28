@@ -1,0 +1,68 @@
+{
+  "$comment": "Bundled defaults for the sdet-pipeline spec/test-management layer. Do not edit this copy - run /sdet-config init to create the project's own sdet.config.json (at the project root), which overrides these values key by key. Precedence: runtime flags on /sdet (e.g. --accessibility=true) > project sdet.config.json > this file.",
+  "configVersion": 1,
+  "spec": {
+    "enabled": true,
+    "roots": [
+      "specs"
+    ],
+    "recursive": true,
+    "extensions": [
+      ".md",
+      ".yaml",
+      ".yml",
+      ".json"
+    ],
+    "exclude": [
+      "node_modules",
+      ".git",
+      ".sdet",
+      "test-results",
+      "playwright-report",
+      "README.md"
+    ],
+    "idPattern": "^[A-Z][A-Z0-9]*(-[A-Z0-9]+)*$"
+  },
+  "testing": {
+    "ui": true,
+    "api": false,
+    "visual": false,
+    "functional": true,
+    "security": false,
+    "accessibility": false
+  },
+  "paths": {
+    "testCases": "test-cases",
+    "generatedTests": "tests/generated",
+    "stateDir": ".sdet"
+  },
+  "execution": {
+    "runAfterGenerate": true,
+    "onUnchanged": "verify",
+    "playwrightProject": null
+  },
+  "api": {
+    "collection": null
+  },
+  "accessibility": {
+    "engine": "@axe-core/playwright",
+    "wcagTags": [
+      "wcag2a",
+      "wcag2aa",
+      "wcag21a",
+      "wcag21aa"
+    ],
+    "failOnImpact": [
+      "critical",
+      "serious"
+    ]
+  },
+  "security": {
+    "nonDestructiveOnly": true,
+    "authorizedHosts": []
+  },
+  "autonomous": {
+    "idPrefix": "AUTO",
+    "maxAreas": 3
+  }
+}

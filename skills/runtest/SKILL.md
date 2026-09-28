@@ -24,6 +24,15 @@ flakiness), and list the path to each failure's screenshot/trace/video/HAR. Flag
 looks like a genuine application defect so it can be routed to the **bug-reporter** agent next,
 rather than fixed as if it were an automation bug.
 
+**Projects using `/sdet` (an `sdet.config.json` at the root).** Honour its testing toggles: get the
+command from `node "${CLAUDE_PLUGIN_ROOT}/scripts/sdet.js" run-args [<SPEC_ID>...] [--tc <TC ids>]`
+(a spec id or test-case id scope maps to those; for the full suite pass no ids; for a file or other
+`@tag` scope, append that scope to the command it prints) so tests of a disabled security or
+accessibility dimension are excluded, and hand that exact command to **test-runner**. Afterwards run
+`node "${CLAUDE_PLUGIN_ROOT}/scripts/sdet.js" results ingest` so each test case's last execution is
+recorded, and `... results classify <TC_ID> <CATEGORY>` for every diagnosed failure. Without an
+`sdet.config.json`, run exactly as below.
+
 If the project has a `visual` Playwright project, it runs with the rest of the suite unless the
 scope says otherwise (`--project=visual` runs it alone). A `toHaveScreenshot` mismatch is a
 `VISUAL_REGRESSION`, not a locator failure: report the expected/actual/diff artifact paths and

@@ -1,0 +1,41 @@
+# Example testing specification for the sdet-pipeline /sdet command.
+# Describe WHAT to test and WHY - never selectors, XPath, Playwright code or
+# click-by-click steps. The pipeline explores the real application to work out HOW.
+#
+# id      - stable identity. Never change it; moving/renaming this file is safe.
+# version - bump it whenever you change the spec so the change is traceable.
+
+id: EXAMPLE-LOGIN-001
+version: 1
+
+name: Example Login
+
+objective: >
+  Verify that authorised users can sign in and that invalid or incomplete
+  credentials are rejected without revealing which field was wrong.
+
+entry_point:
+  url: env:LOGIN_URL
+
+# Name the environment variables that hold test data - never the values themselves.
+# Real values live in the project's .env (gitignored).
+test_data:
+  username: env:LOGIN_USERNAME
+  password: env:LOGIN_PASSWORD
+
+scenarios:
+  - valid login
+  - invalid username
+  - invalid password
+  - empty username
+  - empty password
+
+# Used only when testing.security is true in sdet.config.json.
+security_checks:
+  - authentication validation
+  - sensitive information exposure
+
+# Used only when testing.accessibility is true in sdet.config.json.
+accessibility_checks:
+  - keyboard accessibility
+  - form accessibility

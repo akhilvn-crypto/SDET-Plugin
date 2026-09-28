@@ -36,6 +36,10 @@ Run the requested scope:
 - Full/regression suite: the project's regression script, or `npx playwright test`
 
 Use `--reporter=list,html` (or whatever the project already configures) so results are legible.
+When `/sdet` or `/runtest` hands you a command produced by `sdet.js run-args`, run it **exactly** as
+given: its `--grep` scopes the run to the spec/test cases by tag, its `--grep-invert` keeps
+security/accessibility tests out when the project's config disables them, and its JSON reporter
+writes the results file the pipeline maps back to test cases. Don't drop or widen any of it.
 Capture stdout/stderr fully — don't truncate failure output.
 
 ## 3. Read the evidence, not just the exit code
@@ -133,8 +137,8 @@ is available.
 
 **Command run** — exact command(s) and scope.
 **Result** — pass/fail counts, duration.
-**Failures** — for each: test name, classification (per §4), root-cause explanation, and the path
-to its screenshot/trace/video/HAR.
+**Failures** — for each: test name, its test-case id if it carries an `@<SPEC_ID>-TCnn` tag,
+classification (per §4), root-cause explanation, and the path to its screenshot/trace/video/HAR.
 **Flaky tests** — any test whose outcome changed across retries.
 **Recommendation** — who should fix it (automation vs. application) and what the fix likely is;
 note explicitly if multiple failures point at one shared/systemic root cause; do not weaken or

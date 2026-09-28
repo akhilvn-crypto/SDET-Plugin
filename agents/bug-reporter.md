@@ -33,7 +33,9 @@ known `Open` bug (bump it, don't duplicate it) or a comeback of one marked `Fixe
 ## 2. Gather evidence
 
 Collect everything available for the failing test:
-- Test name, file path, and the approved test case / step it corresponds to
+- Test name, file path, and the approved test case / step it corresponds to — when the test
+  carries `@<SPEC_ID>` / `@<SPEC_ID>-TCnn` tags, record both ids (put them in `related_test` and
+  `tags`) so the bug traces back to its specification and test case
 - Error message and stack trace
 - Screenshot(s) at point of failure
 - Trace file path (and key findings from it: which action failed, DOM state)
