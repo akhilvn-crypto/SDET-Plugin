@@ -109,8 +109,12 @@ function intake(cwd, config, state, key, story) {
   return { key, classification, spec_path: rel(cwd, file), spec_version: existing ? existing.version : null, story_file: rel(cwd, storyPath(cwd, config, key)), warnings };
 }
 
-/** Write the analysed spec: the skill's draft body under a script-owned frontmatter. */
-function stamp(cwd, config, state, key, draftFile, { force } = {}) {
+/**
+ * Write the analysed spec: the skill's draft body under a script-owned frontmatter.
+ * `revise` applies a reviewer's corrections to a spec that has not been processed yet: the file is
+ * rewritten in place and keeps its version, so review rounds don't inflate the spec history.
+ */
+function stamp(cwd, config, state, key, draftFile, { force, revise } = {}) {
   key = requireKey(key);
   const story = loadStory(cwd, config, key);
   if (!story) throw new UsageError(`No story snapshot for ${key} - run "jira intake ${key} --file <story.json>" first.`);
@@ -123,7 +127,13 @@ function stamp(cwd, config, state, key, draftFile, { force } = {}) {
 
   const { file, existing } = specFileFor(cwd, config, state, key);
   let version = 1;
-  if (existing) {
+  if (existing && revise) {
+    const record = state.specs[key];
+    if (record && record.last_processed_hash === existing.hash) {
+      throw new UsageError(`${rel(cwd, file)} v${existing.version} has already been processed - a correction now is a new version: stamp without --revise.`);
+    }
+    version = Number(existing.version) || 1;
+  } else if (existing) {
     const fm = frontmatterOf(file);
     if (fm.jira_updated && String(fm.jira_updated) === String(story.updated) && !force) {
       throw new UsageError(`${rel(cwd, file)} already reflects the current version of ${key} - nothing to stamp (pass --force to rewrite it anyway).`);

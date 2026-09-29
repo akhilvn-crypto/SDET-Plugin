@@ -117,6 +117,10 @@ or `config set testing.accessibility true`. Unknown keys are refused. Then `$SDE
 | `paths.bugs` | `bugs` | Where `bug-reporter` files `BUG-<NNN>.md`; test cases link to bugs here (`results classify --issue BUG-004`). |
 | `paths.productCatalog` | `product-catalog` | Project-level notes (`PROJECT-CATALOG.md` and any other file there): environments/URLs, user roles, test accounts as env var names, modules, business rules. Read by every agent before exploring, writing test cases or filing bugs. |
 | `paths.issueLogs` | `issue-logs` | Generated traceability logs: `TRACEABILITY.md` (Story → Spec → Test Case → Automation → Result → Bug), one `<ID>.md` per story/spec, `traceability.json` (with run history). |
+| `review.enabled` | `true` | Human-in-the-loop: pause for a person to approve (or correct) generated specs and test cases before anything is automated. `/sdet --review=false` skips it for one run. |
+| `review.spec` | `true` | Review the spec written from a Jira story before exploration (hand-written specs never need it). |
+| `review.testCases` | `true` | Review generated / changed test cases before automation. |
+| `review.bugs` | `true` | Review each bug before it is filed to Jira; a declined bug is never filed. When off, `jira.autoCreateBugs` decides. |
 | `execution.runAfterGenerate` | `true` | Execute affected tests after creating/updating automation. |
 | `execution.onUnchanged` | `verify` | For an unchanged spec: `skip` (report only), `verify` (check automation still maps to every case), `run` (also execute). |
 | `execution.playwrightProject` | `null` | Limit runs to one Playwright project (e.g. `chromium`). |

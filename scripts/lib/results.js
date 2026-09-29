@@ -197,6 +197,11 @@ function formatLifecycle(record, doc, config) {
   const explored = (record.history || []).some((h) => h.event === 'EXPLORED');
   add('Exploration', explored ? 'Completed' : 'Not recorded');
   add('Lifecycle status', record.status);
+  for (const [gate, a] of Object.entries(record.approvals || {})) {
+    const who = a.by ? ` by ${a.by} on ${String(a.at).slice(0, 10)}` : '';
+    const label = { APPROVED: `Approved${who} (v${a.version})`, CHANGES_REQUESTED: `Changes requested${who}: ${a.note}`, PENDING: 'Awaiting review' }[a.status] || a.status;
+    add(`Review (${gate})`, `${label}${a.rounds > 1 ? ` — ${a.rounds} review rounds` : ''}`);
+  }
   if (!doc) {
     lines.push('Test Cases:', '  none generated yet', '');
     return lines.join('\n');

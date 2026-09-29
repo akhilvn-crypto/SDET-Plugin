@@ -25,6 +25,7 @@ const SHORTHAND = {
   'spec-enabled': 'spec.enabled',
   jira: 'jira.enabled',
   'jira-project': 'jira.projectKey',
+  review: 'review.enabled',
 };
 
 const ON_UNCHANGED = ['skip', 'verify', 'run'];

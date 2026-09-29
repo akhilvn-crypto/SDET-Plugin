@@ -25,13 +25,15 @@ Arguments (all optional):
 | `--collection <path>` | Drive the API layer from a Postman / OpenAPI / Insomnia file (sets `api.collection`). Only used when the API layer is on. |
 | `--security=true\|false`, `--accessibility=true\|false`, `--set <key>=<value>` | Override `sdet.config.json` for this run only. |
 | `--excel` | Also convert each processed spec's test cases to an Excel workbook in the Emvigo controlled-document layout (§3.9). Combined with `--list` or `--report`, it only exports - see §1. |
+| `--approve <ID>` (repeatable) | The reviewer has read the pending spec / test cases outside this session and approves them as they are on disk: record it and carry on with that spec (§3a.5). |
+| `--review=true\|false` | Turn the human review gates (§3a) on or off for this run only. Default: on (`review.enabled`). |
 
 Every automation run goes through this command. There is no separate single-case command: to
 automate or re-automate specific cases, use `--spec` for their spec. A case already marked
 `Needs Update` or `Not Automated` is picked up automatically.
 
 **Jira mode gate.** When the resolved config has `jira.enabled: true` and the arguments contain
-neither `--story` nor `--spec` (and this is not a read-only `--list` / `--report` / `--dry-run`
+none of `--story`, `--spec` or `--approve` (and this is not a read-only `--list` / `--report` / `--dry-run`
 run), stop before doing anything else and tell the user:
 
 > Jira mode is on — tell me which user story to work on: `/sdet --story PROJ-123`
@@ -75,6 +77,12 @@ Non-negotiables for this whole skill:
   what you ask agents to do.
 - **Never convert a spec straight into Playwright code.** The application is explored before any
   detailed test case or automation is written.
+- **A human approves each step before the pipeline acts on it** (§3a): the spec written from a
+  Jira story before test cases are generated, the test cases before automation, and each bug
+  before it is filed to Jira. Disapproved spec / test cases → ask why, fix, ask again. Declined
+  bug → not filed, move on. Only the user's answer counts as approval — never silence, never your
+  own judgement that the content is fine. `$SDET` refuses the `AUTOMATION_GENERATED` / `EXECUTED`
+  stages, `state commit` and `jira link-bug` while the relevant gate is closed.
 - **A failing test is not a reason to edit it.** Diagnose first (§6).
 - **Read the Product Catalog first.** Before analysing a story or spec, and in every hand-off to an
   agent, include the Product Catalog: every file in `paths.productCatalog` (default
@@ -143,6 +151,11 @@ For each story key, one at a time, before discovery:
    spec for this id wherever it lives — with a script-owned frontmatter (`id: <KEY>`, `version`,
    `name`, `source: jira`, `jira_key`, `jira_url`, `jira_updated`). Never hand-edit that
    frontmatter, and never write the spec file yourself.
+   **Review the spec (§3a, gate `spec`)** before going on: the user checks your reading of the
+   story — ACs, scenarios, business rules, open questions — while it is still cheap to fix. If
+   they disapprove, ask why, apply the corrections to the draft, re-stamp with `--revise` (same
+   version) and ask again, until approved. Only then go on to exploration and test-case
+   generation. Skipped for `UNCHANGED` stories whose spec was already processed.
 5. Continue with §2 using `--spec <that spec path>` for each story. The spec id **is** the story
    key, so test cases are `<KEY>-TC01…`, tests are tagged `@<KEY>` / `@<KEY>-TCnn`, and every
    downstream artefact traces back to the story.
@@ -157,7 +170,7 @@ Act on each classification:
 | Classification | Action |
 |---|---|
 | `NEW` | Full workflow (§3). |
-| `RESUME` | Full workflow, resuming: reuse whatever already exists (test-case file, automation) and pick up from the recorded stage — never regenerate finished work. |
+| `RESUME` | Full workflow, resuming: reuse whatever already exists (test-case file, automation) and pick up from the recorded stage — never regenerate finished work. Stopped at `AWAITING_APPROVAL` or `CHANGES_REQUESTED` → resume at §3a for the gate `$SDET approval status <ID>` shows closed (apply the recorded corrections first). |
 | `CHANGED` | Delta workflow (§4). If it is also moved, the commit records the new path. |
 | `MOVED` | `$SDET state relocate <ID>`, then treat as `UNCHANGED`. Test cases and automation are kept as they are. |
 | `UNCHANGED` | No generation. Apply `execution.onUnchanged`: `skip` → report only; `verify` → `$SDET trace <ID>`; if it reports errors (automation missing/untagged), resume at §3 step 5 for just those cases, otherwise report "unchanged — no duplication"; `run` → §3 steps 7–10 only. |
@@ -200,6 +213,10 @@ every case on **both** the spec (what must be true) and the exploration (how the
 it). Then loop `$SDET testcases validate <ID>` until it prints `OK`, and
 `$SDET testcases render <ID>` for the human-review Markdown.
 `$SDET state stage <ID> TEST_CASES_GENERATED`
+
+**3b. Human review.** Run §3a with gate `test-cases`. Do not go on until
+`$SDET approval check <ID> --gate test-cases` (and `--gate spec` for a story spec) exits 0. If the
+user pauses the review, stop here for this spec and move on to the next.
 
 **4. Detect existing automation before writing any.** Run `$SDET trace <ID>`, and search the test
 suite for flows these cases cover that are *not yet tagged* (grep the page/feature names from the
@@ -294,6 +311,104 @@ it exists, every later re-render (`results ingest`, `results classify`, `testcas
 the export. Also run it for an `UNCHANGED` spec when `--excel` was given - the export is cheap and
 needs no regeneration. List every workbook path in the report.
 
+## 3a. Human review gate
+
+The pipeline stops three times for a person, in this order, and each stage only starts once the
+one before it is approved:
+
+```
+story ─► spec ─[REVIEW spec]─► explore ─► test cases ─[REVIEW test-cases]─► automation ─► run
+      ─► bugs ─[REVIEW each bug]─► filed to Jira   (declined bugs are never filed)
+```
+
+All on by default (`review.enabled`, `review.spec`, `review.testCases`, `review.bugs` in
+`sdet.config.json`; `--review=false` turns them off for one run):
+
+| Gate | What the human reviews | When | If disapproved |
+|---|---|---|---|
+| `spec` | The spec you wrote from a Jira story (`source: jira`). Hand-written specs are already human-authored — the script reports "no approval needed". | §1a, right after `jira stamp`, before exploring / generating test cases | Ask why, fix, re-review (loop) |
+| `test-cases` | The generated test cases (on a delta: only the new / changed ones). | §3 step 3b, §4 step 4, §8 step 4 — before any automation | Ask why, fix, re-review (loop) |
+| `bug` | Each local bug, before it is filed to Jira (or added as a new occurrence on an existing Jira bug). | §6a, per bug | Not filed; move on to the next bug (§3a.6) |
+
+An approval is pinned to the content it covered. Any later edit to the spec, a test case's
+content or the bug report closes the gate again until it is re-approved; script-managed fields
+(automation mapping, results, linked issues, the bug's Jira key) never do. Spec / test-case content
+unchanged since the last committed version needs no new approval.
+
+Steps 1–5 below are the loop for the `spec` and `test-cases` gates; step 6 is the bug gate.
+
+**1. Request.** `$SDET approval request <ID> --gate <gate>`. It prints the review round and, on a
+re-review, exactly which test cases changed since the last approval.
+
+**2. Present it for review — briefly, in chat.** Don't paste the whole document; give the user what
+they need to decide and the file to open for the rest:
+- the file to read: the rendered `<ID>.test-cases.md` (or the spec file);
+- test cases: a table `TC ID | Title | Type | Priority | Requirement` — on a re-review only the
+  changed cases, plus a count of the unchanged ones — then `not_covered`, and every place where
+  exploration contradicted the spec;
+- spec: the numbered ACs, the scenario list, and the Open Questions;
+- any assumption you made that a person should confirm (e.g. which role, which test account).
+
+**3. Ask** with `AskUserQuestion` — one question, header `Review`:
+- **Approve** — spec: "Generate test cases from this spec." / test cases: "Automate these as they are."
+- **Disapprove** — "Something needs to change — I'll tell you what and why."
+- **Review later** — "Pause this spec; I'll review the file and come back."
+
+**4. Act on the answer.**
+- **Approve** → `$SDET approval approve <ID> --gate <gate>`. The reviewer's name comes from
+  `authors.json` (via `SDET_RUNNER_ID` / git email); if the script can't tell, ask the user's name
+  once and pass `--by "<name>"`. For test cases this also fills Reviewed/Approved By/On in the
+  current release-history row and the Approved Date, and re-renders the `.md`.
+- **Disapprove** →
+  1. **Ask why.** Unless the answer's notes already say it, ask in plain text: "What's wrong, and
+     what should it say instead?" and wait for the reply. Don't continue without it. If the reason
+     is too vague to act on ("TC03 is wrong", "AC2 isn't right"), ask a follow-up about what the
+     correct behaviour is — never guess a fix.
+  2. **Record it** verbatim: `$SDET approval reject <ID> --gate <gate> --note "<the user's reason
+     and corrections>"` (the script refuses without a reason).
+  3. **Fix it:**
+  - test cases: edit the JSON content only (never script-managed fields); keep TC ids stable —
+    add new cases after the highest number, and remove a case outright only if it has never been
+    committed (otherwise mark it `Obsolete`). Review rounds do **not** bump `meta.version`; add a
+    note to the current changelog entry instead ("review round 2: TC03 expected result corrected").
+    Validate and render.
+  - spec: rewrite the draft and `$SDET jira stamp <KEY> --draft <file> --revise` (keeps the
+    version). If the correction changes requirements, update the affected test cases too.
+  - The user may prefer to edit the files themselves: when they say they're done, validate,
+    render, and continue.
+  4. **Re-review.** Show what changed (a short before → after per touched case / AC) and go back
+     to step 1 — a new round. Repeat until approved or paused. Nothing downstream starts meanwhile:
+     no exploration / test-case generation while the spec is disapproved, no automation while the
+     test cases are.
+- **Review later** → leave it `AWAITING_APPROVAL`, stop processing this spec and move on to the
+  next. In the report, say exactly what to review and how to continue: `/sdet --approve <ID>`
+  (approve as-is) or `/sdet --spec <path>` (re-enter the review, e.g. to request changes).
+
+A run with nobody to answer (scheduled, headless) always takes **Review later** — never approves
+on its own.
+
+**5. `--approve <ID>`.** Run `$SDET approval status <ID>`. For each closed gate whose status is
+`PENDING`, the user has read what is on disk: `$SDET approval approve <ID> --gate <gate>`. A gate
+in `CHANGES_REQUESTED` or never requested can't be approved blind — enter the review loop above
+for it instead. Then process the spec as `RESUME`.
+
+**6. Bug gate — one bug at a time, before anything is written to Jira.** Used by §6a after
+de-duplication and choosing the link type, so the reviewer sees exactly what would be filed.
+1. `$SDET approval check BUG-<NNN> --gate bug`. Already `OPEN` (approved, content unchanged) →
+   file it. Previously **declined** → don't ask again and don't file; list it in the report as
+   "declined earlier by <who>" (the user can re-open it with `approval request BUG-<NNN> --gate bug`).
+2. `$SDET approval request BUG-<NNN> --gate bug`, then show in chat: title, severity / priority,
+   the test case and AC it breaks, actual vs. expected in one line each, the evidence paths, and
+   what will happen in Jira — "create a new Bug in <project>, **Blocks** PROJ-123 (AC2 cannot be
+   met)" or "add an occurrence comment to existing PROJ-456".
+3. Ask with `AskUserQuestion`, header `File bug?`:
+   - **File to Jira** → `$SDET approval approve BUG-<NNN> --gate bug`, then §6a steps 4–6 (or the reuse comment).
+   - **Don't file** → `$SDET approval reject BUG-<NNN> --gate bug --note "<their reason, if they
+     gave one>"`. Nothing goes to Jira for it — no issue, no link, no comment. The local bug and
+     the test case's result stay as they are. Move straight on to the next bug.
+   - **Decide later** → leave it pending, don't file, move on; the report lists it.
+4. `jira link-bug` refuses a bug that isn't approved, so a skipped bug can't be recorded as filed.
+
 ## 4. Delta workflow (CHANGED)
 
 1. `$SDET specs diff <ID>` — requirement-level delta (items added/removed per section, changed
@@ -312,7 +427,8 @@ needs no regeneration. List every workbook path in the report.
 3. Explore only the affected functionality (test-writer explore-only, scoped to the added/changed
    items), then `$SDET state stage <ID> EXPLORED --note "delta: <items>"`.
 4. Bump `meta.version` (minor, e.g. `1.0` → `1.1`), append a `meta.changelog` entry naming exactly
-   what changed, add a `release_history` row. Validate and render as in §3.3.
+   what changed, add a `release_history` row. Validate and render as in §3.3. Then the human
+   review (§3a, gate `test-cases`) — the reviewer sees only the new / updated / obsoleted cases.
 5. Automate only `Not Automated` / `Needs Update` cases; ask test-writer to **remove** the automated
    tests of obsoleted cases (found by tag) — `$SDET trace <ID>` warns while any remain. Then §3.5's
    trace/`set-status` steps.
@@ -404,16 +520,20 @@ Never modify a test simply because it failed, never re-record a visual baseline 
 Only a failure classified `APPLICATION_DEFECT` (or a confirmed `VISUAL_REGRESSION`) goes to Jira —
 never an automation, locator, timing, environment, test-data or unknown failure, and never a spec
 vs. application question that is really an Open Question. **bug-reporter** always files the local
-`BUG-<NNN>.md` first (it has no Jira access); you then mirror it to Jira.
+`BUG-<NNN>.md` first (it has no Jira access); you then mirror it to Jira — **one bug at a time,
+and only after the user approves that bug** (step 3). A bug the user declines is not filed; go on
+with the next one.
 
-1. **De-duplicate — never file the same defect twice.**
+1. **De-duplicate — never file the same defect twice.** (This only decides *what* would happen in
+   Jira; nothing is written there until step 3 approves it.)
    - `$SDET jira find-bug --tc <TC_ID>` and `--bug BUG-<NNN>`: a Jira bug already recorded for this
      case or this local bug is the same defect.
    - Otherwise search Jira: `searchJiraIssuesUsingJql` with
      `project = <projectKey> AND issuetype = "<bugIssueType>" AND labels = "<first jira.labels>" AND statusCategory != Done AND (labels = "<TC_ID>" OR issue in linkedIssues(<STORY>))`,
      and compare summaries/steps with this defect.
-   - If an open Jira bug is the same defect: **reuse it** — `addCommentToJiraIssue` with the new
-     occurrence (date, test case, one-line actual result, spec version), and record it with
+   - If an open Jira bug is the same defect: plan to **reuse it** — once approved (step 3),
+     `addCommentToJiraIssue` with the new occurrence (date, test case, one-line actual result, spec
+     version), and record it with
      `$SDET jira link-bug <BUG-KEY> --story <STORY> --tc <TC_ID> --bug BUG-<NNN> --reused`.
      If it is a Jira bug in a Done status that reproduces again, file a new bug (step 3) and link
      it to the old one with `Relates`, noting "regression of <old key>" in the description.
@@ -427,8 +547,11 @@ vs. application question that is really an Open Question. **bug-reporter** alway
      validation message, an edge case, a cosmetic or secondary-flow problem), or a defect found in
      adjacent functionality outside this story's ACs.
    State the reason in one line in the bug description ("Blocks PROJ-123: AC2 cannot be met").
-3. **Create** (automatic when `jira.autoCreateBugs` is true; otherwise list every bug about to be
-   filed and confirm once per run). `createJiraIssue` with `cloudId`, `projectKey`,
+3. **Human review of this bug** — §3a step 6. Approved → continue with step 4 (or the reuse
+   comment from step 1). Declined or deferred → nothing goes to Jira for this bug; skip steps 4–6
+   for it and start step 1 for the next bug. (With `review.bugs` off, `jira.autoCreateBugs`
+   applies as before: true = file without asking, false = list every bug and confirm once per run.)
+4. **Create.** `createJiraIssue` with `cloudId`, `projectKey`,
    `issueTypeName: <jira.bugIssueType>`, `contentFormat: "markdown"`,
    `summary` = the local bug's title, and `additional_fields: {"labels": [<jira.labels>, "<TC_ID>"]}`
    (plus `priority` when the site accepts bug-reporter's priority name — if Jira rejects a field,
@@ -439,20 +562,21 @@ vs. application question that is really an Open Question. **bug-reporter** alway
    short **Technical details** section. Screenshots, traces, videos and HAR files cannot be
    attached through the connector: list their project-relative paths and say so. Never put a
    credential, token, cookie or personal data in Jira (the same scrubbing as bug-reporter §3).
-4. **Link to the story.** `createIssueLink` with `type` = the chosen link type:
+5. **Link to the story.** `createIssueLink` with `type` = the chosen link type:
    - Blocks: `inwardIssue: <BUG-KEY>` (the blocker), `outwardIssue: <STORY-KEY>` (the blocked
      story) — the story then shows "is blocked by <BUG-KEY>".
    - Relates: `inwardIssue: <BUG-KEY>`, `outwardIssue: <STORY-KEY>`.
    If the link fails, the bug still exists — report the failure and retry once; never create a
    second bug.
-5. **Record.** `$SDET jira link-bug <BUG-KEY> --story <STORY> --tc <TC_ID>[,<TC_ID>…] --bug BUG-<NNN> --link-type <Blocks|Relates>`
+6. **Record.** `$SDET jira link-bug <BUG-KEY> --story <STORY> --tc <TC_ID>[,<TC_ID>…] --bug BUG-<NNN> --link-type <Blocks|Relates>`
    (writes `jira_key` / `jira_url` into the local bug file and the bug registry), then
    `$SDET results classify <TC_ID> APPLICATION_DEFECT --issue BUG-<NNN> --issue <BUG-KEY> --actual "…"`.
-6. A bug found while running a spec that did not come from a story (no `source: jira`) is still
-   filed to `jira.projectKey`, just without a story link.
-7. **Story comment** (only when `jira.commentOnStory` is true): after the run, one
+   (A declined bug keeps only its local link: `--issue BUG-<NNN>`.)
+7. A bug found while running a spec that did not come from a story (no `source: jira`) is still
+   filed to `jira.projectKey`, just without a story link — after the same review.
+8. **Story comment** (only when `jira.commentOnStory` is true): after the run, one
    `addCommentToJiraIssue` on the story — test cases (count by type), pass / fail / blocked,
-   bugs raised or reused with their link type, and the Open Questions. One comment per run, never
+   bugs raised or reused with their link type (never the declined ones), and the Open Questions. One comment per run, never
    one per test.
 
 ## 7. Report
@@ -467,8 +591,11 @@ Print `$SDET report <processed IDs>` (each failure shows its test status, actual
 issues; the rendered test-cases `.md` has the full Execution Results table), then add, in plain words: per spec, what was classified and
 what was done (created / updated / unchanged — "no duplication" for an unchanged spec), any spec vs
 application contradictions, bugs filed (local id, Jira key and link type — created or reused),
-for a story: whether it was NEW / UPDATED / UNCHANGED at intake and its Open Questions, anything skipped and why (missing id declined, duplicate id,
-blocked environment), and every warning. Disabled dimensions are reported only as `Disabled`, never
+for a story: whether it was NEW / UPDATED / UNCHANGED at intake and its Open Questions, the review
+outcome per gate (who approved, how many rounds, what was corrected — from `$SDET approval status`),
+bugs the user declined or deferred (not filed to Jira) with their reasons,
+anything skipped and why (missing id declined, duplicate id, blocked environment, **review paused**
+— with the file to review and the command to continue), and every warning. Disabled dimensions are reported only as `Disabled`, never
 with findings. An automated accessibility scan is reported as exactly that — never as WCAG
 compliance.
 
@@ -486,7 +613,7 @@ The existing exploration behaviour, wrapped in the same bookkeeping:
    `... EXPLORED --source autonomous`, `$SDET testcases init <ID> --source autonomous --name "<area>"`.
 4. Generate functional cases from what the exploration observed (same structure and rules as §5,
    `req_id` = the area id, `spec_scenario` = the observed workflow), plus security / accessibility
-   cases only if enabled.
+   cases only if enabled. Validate, render, and run the human review (§3a, gate `test-cases`).
 5. Continue with §3 steps 4–8 unchanged.
 
 ## 9. Record the run

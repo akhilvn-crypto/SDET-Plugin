@@ -38,6 +38,12 @@
     "productCatalog": "product-catalog",
     "issueLogs": "issue-logs"
   },
+  "review": {
+    "enabled": true,
+    "spec": true,
+    "testCases": true,
+    "bugs": true
+  },
   "execution": {
     "runAfterGenerate": true,
     "onUnchanged": "verify",

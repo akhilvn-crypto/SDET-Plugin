@@ -23,7 +23,10 @@
  *   results   ingest [<report.json>] [--spec <ID>]... | pending [<ID>...] [--json]
  *             classify <TC_ID> <CATEGORY> [--actual "<plain-language actual result>"] [--issue <BUG-ID|URL|key>]...
  *   report    [<ID>...] [--json]
- *   jira      intake <KEY> --file <story.json> [--json] | stamp <KEY> --draft <body.md> [--force] | spec-path <KEY>
+ *   approval  request <ID|BUG-NNN> --gate spec|test-cases|bug | approve <ID> --gate <g> [--by "<name>"] [--note "..."]
+ *             reject <ID> --gate <g> --note "<why / corrections>" [--by "<name>"]   (bug gate: declined, never filed)
+ *             check <ID> --gate <g> | status [<ID|BUG-NNN>...] [--json]
+ *   jira      intake <KEY> --file <story.json> [--json] | stamp <KEY> --draft <body.md> [--force | --revise] | spec-path <KEY>
  *             link-bug <JIRA-BUG> --story <KEY> --tc <TC,...> [--bug BUG-NNN] [--link-type <type>] [--reused]
  *             find-bug [--tc <TC>] [--bug BUG-NNN] [--story <KEY>] [--json] | show <KEY>
  *   issuelog  write [<ID>...]   (issue-logs/: traceability matrix, per-story logs, run history)
@@ -32,7 +35,7 @@
  *   --functional=true|false (UI via Playwright)  --api=...  --visual=...  (automation layers)
  *   --security=true|false  --accessibility=true|false  (test-case dimensions)
  *   --collection <Postman/OpenAPI/Insomnia file>  --spec-root <dir>[,<dir>]  --set <dotted.key>=<value>
- *   --jira=true|false  --jira-project <KEY>
+ *   --jira=true|false  --jira-project <KEY>  --review=true|false (human approval gates)
  *
  * Exit codes: 0 ok, 1 validation/usage error, 2 unexpected failure.
  */
@@ -47,6 +50,7 @@ const res = require('./lib/results');
 const ex = require('./lib/execution');
 const jira = require('./lib/jira');
 const issuelog = require('./lib/issuelog');
+const approval = require('./lib/approval');
 
 const cwd = process.cwd();
 const out = (x) => console.log(typeof x === 'string' ? x : JSON.stringify(x, null, 2));
@@ -300,6 +304,7 @@ function cmdState(sub, positional, flags) {
     } else if (!new RegExp(config.spec.idPattern).test(id)) {
       throw new UsageError(`Autonomous id "${id}" must match spec.idPattern (e.g. ${config.autonomous.idPrefix}-CHECKOUT).`);
     }
+    if (GATED_STAGES.includes(stage)) requireApproved(config, state, id);
     const record = st.setStage(state, id, stage, { source, spec, name: flags.name, note: flags.note });
     st.saveState(cwd, config, state);
     out(`${id}: ${record.status}`);
@@ -316,12 +321,25 @@ function cmdState(sub, positional, flags) {
   throw new UsageError(`Unknown state command "${sub}".`);
 }
 
+// Stages that mean "automation work happened" - never reachable past a closed review gate.
+const GATED_STAGES = ['APPROVED', 'AUTOMATION_GENERATED', 'EXECUTED'];
+
+function requireApproved(config, state, id) {
+  const closed = approval.SPEC_GATES.map((gate) => ({ gate, ...approval.check(cwd, config, state, id, gate) })).filter((c) => !c.ok);
+  if (!closed.length) return;
+  throw new UsageError(
+    `${id} is not approved for automation:\n${closed.map((c) => `  - ${c.gate}: ${c.reason}${c.file ? ` (${c.file})` : ''}`).join('\n')}\n` +
+      `Get a human review first: "approval request ${id} --gate <gate>", then "approval approve ${id} --gate <gate>".`
+  );
+}
+
 /** Close out a processing run: validate, sync traceability, snapshot, compute the delta, persist. */
 function commit(config, state, id, flags) {
   const record = state.specs[id];
   if (!record) throw new UsageError(`No state record for ${id} - nothing was processed.`);
   let spec = null;
   if (record.source !== 'autonomous') spec = resolveSpec(config, state, id, flags);
+  requireApproved(config, state, id);
   const { file, doc } = loadDocOrFail(config, state, id);
   const { errors, warnings } = tcs.validateDoc(doc, { id, config, record });
   if (errors.length) throw new UsageError(`Test cases for ${id} are invalid - fix before committing:\n${errors.map((e) => `  - ${e}`).join('\n')}`);
@@ -637,8 +655,8 @@ function cmdJira(sub, positional, flags) {
   }
   if (sub === 'stamp') {
     const key = requireId(positional, 'story key');
-    if (typeof flags.draft !== 'string') throw new UsageError('Usage: jira stamp <KEY> --draft <body.md> [--force]');
-    const r = jira.stamp(cwd, config, state, key, flags.draft, { force: Boolean(flags.force) });
+    if (typeof flags.draft !== 'string') throw new UsageError('Usage: jira stamp <KEY> --draft <body.md> [--force | --revise]');
+    const r = jira.stamp(cwd, config, state, key, flags.draft, { force: Boolean(flags.force), revise: Boolean(flags.revise) });
     out(`Wrote ${r.path} (version ${r.version}${r.previous_version ? `, was ${r.previous_version}` : ''})`);
     return 0;
   }
@@ -653,6 +671,13 @@ function cmdJira(sub, positional, flags) {
     const tcIds = list(flags.tc);
     if (typeof flags.story !== 'string' || !tcIds.length) throw new UsageError('Usage: jira link-bug <JIRA-BUG> --story <KEY> --tc <TC,...> [--bug BUG-NNN] [--link-type <type>] [--reused]');
     for (const tc of tcIds) specIdOf(tc);
+    // Backstop for the bug review gate: nothing reaches Jira's records without a human's approval.
+    if (config.jira.enabled && approval.gateEnabled(config, 'bug')) {
+      if (typeof flags.bug !== 'string') throw new UsageError('Bug review is on: pass --bug BUG-NNN (the approved local bug this Jira bug mirrors).');
+      const bugId = flags.bug.toUpperCase();
+      const c = approval.check(cwd, config, state, bugId, 'bug');
+      if (!c.ok) throw new UsageError(`${bugId} is not approved for Jira: ${c.reason}. Review it first ("approval request ${bugId} --gate bug").`);
+    }
     const entry = jira.linkBug(cwd, config, {
       jiraKey,
       bug: typeof flags.bug === 'string' ? flags.bug : null,
@@ -680,6 +705,66 @@ function cmdJira(sub, positional, flags) {
   throw new UsageError(`Unknown jira command "${sub}".`);
 }
 
+// ------------------------------------------------------------------ approval (human review gates)
+
+function cmdApproval(sub, positional, flags) {
+  const { config } = cfg.loadConfig(cwd, flags);
+  const state = st.loadState(cwd, config);
+  if (sub === 'status') {
+    const ids = positional.length ? positional.map((p) => (/^bug-\d+$/i.test(p) ? p.toUpperCase() : p)) : [...Object.keys(state.specs), ...Object.keys(state.bug_reviews || {})];
+    const report = Object.fromEntries(ids.map((id) => [id, approval.status(cwd, config, state, id)]));
+    if (flags.json) return out(report), 0;
+    for (const [id, gates] of Object.entries(report)) {
+      out(id);
+      for (const [gate, g] of Object.entries(gates)) {
+        out(`  ${gate.padEnd(11)} ${g.ok ? 'OPEN  ' : 'CLOSED'} ${g.reason}${g.rounds ? ` (review round ${g.rounds})` : ''}`);
+        if (!g.ok && g.changed && g.changed.length) out(`              to review: ${g.changed.join(', ')}`);
+      }
+    }
+    return 0;
+  }
+  const raw = requireId(positional);
+  const id = /^bug-\d+$/i.test(raw) ? raw.toUpperCase() : raw;
+  const gate = approval.requireGate(flags.gate, id);
+  if (sub === 'check') {
+    const c = approval.check(cwd, config, state, id, gate);
+    if (flags.json) out(c);
+    else out(`${id} ${gate}: ${c.ok ? 'OPEN' : 'CLOSED'} - ${c.reason}${!c.ok && c.changed && c.changed.length ? `\n  to review: ${c.changed.join(', ')}` : ''}`);
+    return c.ok ? 0 : 1;
+  }
+  if (sub === 'request') {
+    if (!approval.gateEnabled(config, gate)) return out(`${id} ${gate}: review disabled in config - nothing requested`), 0;
+    // A freshly stamped story spec is reviewed before discovery has recorded it.
+    if (!state.specs[id] && gate === 'spec') st.setStage(state, id, 'DISCOVERED', { spec: specs.findSpecById(cwd, config, state, id) });
+    const r = approval.request(cwd, config, state, id, gate);
+    if (r.skipped) return out(`${id} ${gate}: ${r.reason}`), 0;
+    if (gate !== 'bug') st.setStage(state, id, 'AWAITING_APPROVAL', { note: `${gate} v${r.version} (round ${r.round})` });
+    st.saveState(cwd, config, state);
+    out(`${id} ${gate}: awaiting review (round ${r.round}) - ${r.file}${r.version ? ` v${r.version}` : ''}`);
+    if (gate === 'test-cases' && !r.first_review) out(`  changed since last approval: ${r.changed.length ? r.changed.join(', ') : 'none (only not_covered changed)'}`);
+    return 0;
+  }
+  if (sub === 'approve' || sub === 'reject') {
+    const r = approval.decide(cwd, config, state, id, gate, { decision: sub === 'approve' ? 'APPROVED' : 'REJECTED', by: flags.by, note: flags.note });
+    const label = { APPROVED: 'approved', CHANGES_REQUESTED: 'disapproved - changes requested', DECLINED: 'declined' }[r.status];
+    if (gate === 'bug') {
+      st.saveState(cwd, config, state);
+      return out(`${id}: ${label} by ${r.reviewer} (${r.file})${r.status === 'DECLINED' ? ' - it will not be filed to Jira' : ' - ok to file to Jira'}`), 0;
+    }
+    const stillClosed = approval.SPEC_GATES.filter((g) => !approval.check(cwd, config, state, id, g).ok);
+    const note = `${gate} ${label} by ${r.reviewer}`;
+    // An approved spec with test cases still to come just moves on (to test-case generation) -
+    // only the last open gate flips the record to APPROVED.
+    if (r.status === 'APPROVED' && stillClosed.length) st.pushHistory(state.specs[id], 'APPROVED', note);
+    else st.setStage(state, id, r.status, { note });
+    st.saveState(cwd, config, state);
+    out(`${id} ${gate}: ${label} by ${r.reviewer} (${r.file})`);
+    if (r.status === 'APPROVED' && stillClosed.length) out(`  next: ${stillClosed.join(', ')}`);
+    return 0;
+  }
+  throw new UsageError(`Unknown approval command "${sub}".`);
+}
+
 // ------------------------------------------------------------------ issue logs
 
 function cmdIssuelog(sub, positional, flags) {
@@ -696,7 +781,7 @@ function cmdIssuelog(sub, positional, flags) {
 
 function main() {
   const [group, ...restArgv] = process.argv.slice(2);
-  const takesSub = ['config', 'specs', 'state', 'testcases', 'results', 'jira', 'issuelog'].includes(group);
+  const takesSub = ['config', 'specs', 'state', 'testcases', 'results', 'jira', 'issuelog', 'approval'].includes(group);
   const sub = takesSub ? restArgv[0] : null;
   const { positional, flags } = parseArgs(takesSub ? restArgv.slice(1) : restArgv);
   switch (group) {
@@ -720,6 +805,8 @@ function main() {
       return cmdJira(sub, positional, flags);
     case 'issuelog':
       return cmdIssuelog(sub, positional, flags);
+    case 'approval':
+      return cmdApproval(sub, positional, flags);
     default: {
       const lines = fs.readFileSync(__filename, 'utf8').split('\n');
       const from = lines.findIndex((l) => l.includes('Run from the target'));

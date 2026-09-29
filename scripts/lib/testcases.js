@@ -433,6 +433,7 @@ module.exports = {
   skeleton,
   validateDoc,
   computeDelta,
+  contentOf,
   scanAutomation,
   traceDoc,
   applyTrace,

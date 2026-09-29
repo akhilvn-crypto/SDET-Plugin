@@ -72,7 +72,17 @@ restarting.
 /sdet-pipeline:sdet --api=true --collection ./postman/orders.json   # add the API layer, driven from a collection
 /sdet-pipeline:sdet --excel                         # also export each spec's test cases to Excel (Emvigo layout)
 /sdet-pipeline:sdet --list --excel                  # export only: convert the existing test cases, regenerate nothing
+/sdet-pipeline:sdet --approve PROJ-123              # approve test cases you reviewed offline, then continue to automation
 ```
+
+- **Human in the loop** (on by default, `review.*` in `sdet.config.json`). The pipeline stops
+  for you three times: after writing the spec from a Jira story (before test cases), after
+  generating test cases (before automation), and for each bug before it goes to Jira. Disapprove
+  a spec or test cases and it asks why, applies the fix and asks again until you approve — or
+  pause and review the `.md` later. Decline a bug and it isn't filed; the pipeline moves to the
+  next one. Approvals are pinned to the content (any later edit needs re-approval), and the
+  approver/date go into the test-case document's release history. `--review=false` skips all of
+  it for one run.
 
 - **Automation layers** are set in `sdet.config.json` under `testing`: `ui` (on by default),
   `api` and `visual`. Turn on any combination: UI + API gives balanced coverage of the same case,
