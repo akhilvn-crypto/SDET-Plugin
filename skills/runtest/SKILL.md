@@ -39,7 +39,13 @@ update the test cases with the outcome:
   `... results classify <TC_ID> APPLICATION_DEFECT --issue BUG-<NNN> --actual "..."` so the test
   case links to the bug file. A previously linked bug whose case now passes is re-checked by
   bug-reporter (Fixed); the link stays on the test case and shows the bug's new status.
+- When `jira.enabled` is true, mirror every genuine defect to Jira exactly as the sdet skill's
+  §6a describes (de-duplicate, choose Blocks/Relates, create, link to the story, `jira link-bug`,
+  then classify with both `--issue BUG-<NNN> --issue <JIRA-KEY>`). The story is the test case's
+  spec id when that spec has `source: jira`.
 - `... results pending` must print `OK` before you report.
+- Finally `node "${CLAUDE_PLUGIN_ROOT}/scripts/sdet.js" issuelog write` refreshes the traceability
+  logs in `issue-logs/` (matrix, per-story logs, run history); list them in the report.
 
 Without an `sdet.config.json`, run exactly as below.
 

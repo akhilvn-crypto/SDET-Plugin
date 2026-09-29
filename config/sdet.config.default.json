@@ -34,7 +34,9 @@
     "testCases": "test-cases",
     "generatedTests": "tests/generated",
     "bugs": "bugs",
-    "stateDir": ".sdet"
+    "stateDir": ".sdet",
+    "productCatalog": "product-catalog",
+    "issueLogs": "issue-logs"
   },
   "execution": {
     "runAfterGenerate": true,
@@ -64,5 +66,23 @@
   "autonomous": {
     "idPrefix": "AUTO",
     "maxAreas": 3
+  },
+  "jira": {
+    "enabled": false,
+    "cloudId": null,
+    "siteUrl": null,
+    "projectKey": null,
+    "projectName": null,
+    "specFolder": null,
+    "bugIssueType": "Bug",
+    "linkTypes": [
+      "Relates",
+      "Blocks"
+    ],
+    "labels": [
+      "sdet-agent"
+    ],
+    "autoCreateBugs": true,
+    "commentOnStory": false
   }
 }

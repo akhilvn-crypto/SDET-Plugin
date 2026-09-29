@@ -1,11 +1,11 @@
 {
   "name": "sdet-pipeline",
   "displayName": "SDET Automation Pipeline",
-  "version": "1.9.0",
-  "description": "Playwright + TypeScript SDET pipeline: UI/API/visual test-authoring, execution, bug-reporting, and code-review sub agents driven by one spec-aware command (/sdet: spec discovery, traceable test cases, idempotent automation, config-selected UI/API/visual layers, config-gated security/accessibility), with guardrail hooks (secret-leak blocking, .env-commit blocking, execution-log enforcement) and a persistent per-run execution log.",
+  "version": "1.10.0",
+  "description": "Playwright + TypeScript SDET pipeline: UI/API/visual test-authoring, execution, bug-reporting, and code-review sub agents driven by one spec-aware command (/sdet: Jira story intake with bugs filed back and linked, auto-created spec/product-catalog/issue-log folders, traceability issue logs, spec discovery, traceable test cases, idempotent automation, config-selected UI/API/visual layers, config-gated security/accessibility), with guardrail hooks (secret-leak blocking, .env-commit blocking, execution-log enforcement) and a persistent per-run execution log.",
   "author": {
     "name": "Akhil VN"
   },
-  "keywords": ["playwright", "typescript", "sdet", "qa", "test-automation", "api-testing", "visual-regression", "test-management", "accessibility", "traceability"],
+  "keywords": ["playwright", "typescript", "sdet", "qa", "test-automation", "api-testing", "visual-regression", "test-management", "accessibility", "traceability", "jira"],
   "license": "UNLICENSED"
 }

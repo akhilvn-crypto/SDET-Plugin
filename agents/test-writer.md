@@ -77,6 +77,14 @@ When only the functional (UI) layer is on (`testing.functional` alone), proceed 
 management. It calls you in one of two modes and always says which. Everything else in this file
 still applies; this section only adds to it.
 
+**Product Catalog.** Before exploring or writing anything, read every file in the project's
+Product Catalog folder (`paths.productCatalog` in `sdet.config.json`, default `product-catalog/`,
+main file `PROJECT-CATALOG.md`) when it exists. It holds the environments and URLs, user roles and
+what each may and may not do, test accounts (as env var **names**), modules, business rules and
+test-data rules. Use it for base URLs, which account/role a case needs, and domain rules — prefer it
+over guessing, and prefer what the application actually does over both when they disagree (report
+the disagreement). Never copy a secret into it or out of it.
+
 **Explore-only mode.** You receive a spec id, an entry point, an objective, a list of scenarios,
 and which of security/accessibility are enabled. Do §6/§7 exploration only — reuse
 `automation-knowledge/exploration/` first, explore only what is missing, persist new knowledge and

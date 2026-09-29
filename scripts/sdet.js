@@ -12,7 +12,7 @@
  * Run from the target project's root (all paths resolve against process.cwd()):
  *   node "${CLAUDE_PLUGIN_ROOT}/scripts/sdet.js" <group> <command> [args]
  *
- *   config    init [--force] [--example] [--set k=v]... | show [--json] | get <key> | set <key> <value> | validate
+ *   config    init [--force] [--example] [--set k=v]... | scaffold | show [--json] | get <key> | set <key> <value> | validate
  *   specs     discover [--spec <path>]... [--json] | list [--json] | assign-id <file> [--id <ID>] | diff <ID> [--json]
  *   state     stage <ID> <STAGE> [--spec <path>] [--source autonomous --name "<area>"] [--note "..."] | relocate <ID> [--spec <path>] | commit <ID> [--spec <path>] | show <ID>
  *   testcases init <ID> [--source autonomous --name "<area>"] | path <ID> | validate <ID> | render <ID>
@@ -23,11 +23,16 @@
  *   results   ingest [<report.json>] [--spec <ID>]... | pending [<ID>...] [--json]
  *             classify <TC_ID> <CATEGORY> [--actual "<plain-language actual result>"] [--issue <BUG-ID|URL|key>]...
  *   report    [<ID>...] [--json]
+ *   jira      intake <KEY> --file <story.json> [--json] | stamp <KEY> --draft <body.md> [--force] | spec-path <KEY>
+ *             link-bug <JIRA-BUG> --story <KEY> --tc <TC,...> [--bug BUG-NNN] [--link-type <type>] [--reused]
+ *             find-bug [--tc <TC>] [--bug BUG-NNN] [--story <KEY>] [--json] | show <KEY>
+ *   issuelog  write [<ID>...]   (issue-logs/: traceability matrix, per-story logs, run history)
  *
  * Every command also accepts runtime config overrides, which win over sdet.config.json:
  *   --functional=true|false (UI via Playwright)  --api=...  --visual=...  (automation layers)
  *   --security=true|false  --accessibility=true|false  (test-case dimensions)
  *   --collection <Postman/OpenAPI/Insomnia file>  --spec-root <dir>[,<dir>]  --set <dotted.key>=<value>
+ *   --jira=true|false  --jira-project <KEY>
  *
  * Exit codes: 0 ok, 1 validation/usage error, 2 unexpected failure.
  */
@@ -40,6 +45,8 @@ const st = require('./lib/state');
 const tcs = require('./lib/testcases');
 const res = require('./lib/results');
 const ex = require('./lib/execution');
+const jira = require('./lib/jira');
+const issuelog = require('./lib/issuelog');
 
 const cwd = process.cwd();
 const out = (x) => console.log(typeof x === 'string' ? x : JSON.stringify(x, null, 2));
@@ -53,6 +60,34 @@ function specIdOf(tcId) {
 function requireId(positional, what = 'spec id') {
   if (!positional[0]) throw new UsageError(`Missing ${what}.`);
   return positional[0];
+}
+
+const TEMPLATES = path.join(__dirname, '..', 'templates');
+
+/**
+ * Create the project folders the configuration points at, never touching anything that exists:
+ * every spec root (with a short README), the Product Catalog with its PROJECT-CATALOG.md template,
+ * the issue-logs folder, and the Jira spec sub-folder when Jira is on.
+ */
+function scaffold(config) {
+  const created = [];
+  const mkdir = (dir) => {
+    const full = path.resolve(cwd, dir);
+    if (fs.existsSync(full)) return full;
+    fs.mkdirSync(full, { recursive: true });
+    created.push(`${rel(cwd, full)}/`);
+    return full;
+  };
+  const copy = (template, target) => {
+    if (fs.existsSync(target)) return;
+    fs.copyFileSync(path.join(TEMPLATES, template), target);
+    created.push(rel(cwd, target));
+  };
+  for (const root of config.spec.roots || []) copy('spec-folder.README.md', path.join(mkdir(root), 'README.md'));
+  if (config.jira && config.jira.enabled) mkdir(cfg.jiraSpecFolder(config));
+  copy('project-catalog.template.md', path.join(mkdir(config.paths.productCatalog || 'product-catalog'), 'PROJECT-CATALOG.md'));
+  copy('issue-logs.README.md', path.join(mkdir(config.paths.issueLogs || 'issue-logs'), 'README.md'));
+  return created;
 }
 
 function loadDocOrFail(config, state, id) {
@@ -80,6 +115,7 @@ function cmdConfig(sub, positional, flags) {
     const written = cfg.writeProjectConfig(cwd, fresh);
     out(`Created ${rel(cwd, written)}`);
     warnings.forEach((w) => out(`warning: ${w}`));
+    scaffold(fresh).forEach((c) => out(`Created ${c}`));
     if (flags.example) {
       const root = path.resolve(cwd, fresh.spec.roots[0] || 'specs');
       const example = path.join(root, 'EXAMPLE-LOGIN-001.yaml');
@@ -92,6 +128,11 @@ function cmdConfig(sub, positional, flags) {
     return 0;
   }
   const { config, sources } = cfg.loadConfig(cwd, flags);
+  if (sub === 'scaffold') {
+    const created = scaffold(config);
+    out(created.length ? created.map((c) => `Created ${c}`).join('\n') : 'All configured folders already exist - nothing created.');
+    return 0;
+  }
   if (sub === 'show' || !sub) {
     if (flags.json) out({ config, sources });
     else {
@@ -121,6 +162,8 @@ function cmdConfig(sub, positional, flags) {
     cfg.writeProjectConfig(cwd, project);
     out(`${key} = ${JSON.stringify(value)}  (${rel(cwd, file)})`);
     warnings.forEach((w) => out(`warning: ${w}`));
+    // A new folder setting (spec root, catalog, issue logs, Jira on) takes effect on disk straight away.
+    scaffold(cfg.loadConfig(cwd, {}).config).forEach((c) => out(`Created ${c}`));
     return 0;
   }
   if (sub === 'validate') {
@@ -577,11 +620,83 @@ function cmdReport(positional, flags) {
   return 0;
 }
 
+// ------------------------------------------------------------------ jira
+
+function cmdJira(sub, positional, flags) {
+  const { config } = cfg.loadConfig(cwd, flags);
+  const state = st.loadState(cwd, config);
+  if (sub === 'intake') {
+    const key = jira.requireKey(requireId(positional, 'story key'));
+    if (typeof flags.file !== 'string') throw new UsageError('Usage: jira intake <KEY> --file <story.json>');
+    const story = readJson(path.resolve(cwd, flags.file), null);
+    const result = jira.intake(cwd, config, state, key, story);
+    if (flags.json) return out(result), 0;
+    out(`${result.key}: ${result.classification}  spec: ${result.spec_path}${result.spec_version ? ` (v${result.spec_version})` : ''}`);
+    result.warnings.forEach((w) => out(`warning: ${w}`));
+    return 0;
+  }
+  if (sub === 'stamp') {
+    const key = requireId(positional, 'story key');
+    if (typeof flags.draft !== 'string') throw new UsageError('Usage: jira stamp <KEY> --draft <body.md> [--force]');
+    const r = jira.stamp(cwd, config, state, key, flags.draft, { force: Boolean(flags.force) });
+    out(`Wrote ${r.path} (version ${r.version}${r.previous_version ? `, was ${r.previous_version}` : ''})`);
+    return 0;
+  }
+  if (sub === 'spec-path') {
+    const key = jira.requireKey(requireId(positional, 'story key'));
+    const found = specs.findSpecById(cwd, config, state, key);
+    out(found ? found.path : rel(cwd, path.resolve(cwd, cfg.jiraSpecFolder(config), `${key}.md`)));
+    return 0;
+  }
+  if (sub === 'link-bug') {
+    const jiraKey = requireId(positional, 'Jira bug key');
+    const tcIds = list(flags.tc);
+    if (typeof flags.story !== 'string' || !tcIds.length) throw new UsageError('Usage: jira link-bug <JIRA-BUG> --story <KEY> --tc <TC,...> [--bug BUG-NNN] [--link-type <type>] [--reused]');
+    for (const tc of tcIds) specIdOf(tc);
+    const entry = jira.linkBug(cwd, config, {
+      jiraKey,
+      bug: typeof flags.bug === 'string' ? flags.bug : null,
+      story: flags.story,
+      tcs: tcIds,
+      linkType: typeof flags['link-type'] === 'string' ? flags['link-type'] : null,
+      reused: Boolean(flags.reused),
+    });
+    out(`${entry.jira_key}${entry.link_type ? ` ${entry.link_type}` : ''} ${entry.story}; test cases: ${entry.test_cases.join(', ')}${entry.local_bug ? `; local bug ${entry.local_bug}` : ''}`);
+    return 0;
+  }
+  if (sub === 'find-bug') {
+    const found = jira.findBugs(cwd, config, { tc: flags.tc, bug: flags.bug, story: flags.story });
+    if (flags.json) return out(found), 0;
+    if (!found.length) return out('none'), 0;
+    found.forEach((b) => out(`${b.jira_key}  story ${b.story || '-'}  ${b.link_type || ''}  local ${b.local_bug || '-'}  cases ${b.test_cases.join(', ')}`));
+    return 0;
+  }
+  if (sub === 'show') {
+    const key = jira.requireKey(requireId(positional, 'story key'));
+    const story = jira.loadStory(cwd, config, key);
+    out({ story, spec: (specs.findSpecById(cwd, config, state, key) || {}).path || null, state: state.specs[key] ? state.specs[key].status : null, bugs: jira.findBugs(cwd, config, { story: key }) });
+    return 0;
+  }
+  throw new UsageError(`Unknown jira command "${sub}".`);
+}
+
+// ------------------------------------------------------------------ issue logs
+
+function cmdIssuelog(sub, positional, flags) {
+  if (sub !== 'write') throw new UsageError('Usage: issuelog write [<ID>...]');
+  const { config } = cfg.loadConfig(cwd, flags);
+  const state = st.loadState(cwd, config);
+  const { written, entries } = issuelog.write(cwd, config, state, positional);
+  out(`Issue logs updated (${entries} spec/story record${entries === 1 ? '' : 's'}):`);
+  written.forEach((w) => out(`  ${w}`));
+  return 0;
+}
+
 // ------------------------------------------------------------------ main
 
 function main() {
   const [group, ...restArgv] = process.argv.slice(2);
-  const takesSub = ['config', 'specs', 'state', 'testcases', 'results'].includes(group);
+  const takesSub = ['config', 'specs', 'state', 'testcases', 'results', 'jira', 'issuelog'].includes(group);
   const sub = takesSub ? restArgv[0] : null;
   const { positional, flags } = parseArgs(takesSub ? restArgv.slice(1) : restArgv);
   switch (group) {
@@ -601,6 +716,10 @@ function main() {
       return cmdResults(sub, positional, flags);
     case 'report':
       return cmdReport(positional, flags);
+    case 'jira':
+      return cmdJira(sub, positional, flags);
+    case 'issuelog':
+      return cmdIssuelog(sub, positional, flags);
     default: {
       const lines = fs.readFileSync(__filename, 'utf8').split('\n');
       const from = lines.findIndex((l) => l.includes('Run from the target'));

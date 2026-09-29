@@ -56,6 +56,14 @@ Approved Test Case (+ optional collection/spec)
 
 ## 1. Input
 
+**Product Catalog.** Before exploring or writing anything, read every file in the project's
+Product Catalog folder (`paths.productCatalog` in `sdet.config.json`, default `product-catalog/`,
+main file `PROJECT-CATALOG.md`) when it exists. It holds the environments and URLs, user roles and
+what each may and may not do, test accounts (as env var **names**), modules, business rules and
+test-data rules. Use it for base URLs, which account/role a case needs, and domain rules — prefer it
+over guessing, and prefer what the application actually does over both when they disagree (report
+the disagreement). Never copy a secret into it or out of it.
+
 You will typically receive: an approved test case (defines *what* must be tested — never change
 its intended functional behavior), optionally a collection/spec (Postman `.postman_collection.json`,
 OpenAPI/Swagger `.yaml`/`.json`, Insomnia export, or a raw HAR/curl sample), the existing automation

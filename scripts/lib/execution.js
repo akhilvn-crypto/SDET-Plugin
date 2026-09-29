@@ -100,6 +100,9 @@ function issueRef(cwd, config, issue) {
     if (!fs.existsSync(file)) throw new UsageError(`No bug file at ${rel(cwd, file)} - file the bug (bug-reporter) before linking it.`);
     return { id: path.basename(file, '.md'), path: rel(cwd, file) };
   }
+  // A bare tracker key gets its browse URL when the Jira site is configured.
+  const site = config.jira && config.jira.siteUrl;
+  if (site && /^[A-Z][A-Z0-9_]+-\d+$/.test(raw)) return { id: raw, url: `${String(site).replace(/\/+$/, '')}/browse/${raw}` };
   return { id: raw };
 }
 

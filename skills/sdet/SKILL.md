@@ -1,6 +1,6 @@
 ---
 name: sdet
-description: Spec-aware test management around the existing pipeline — discover specifications (or explore autonomously when there are none), explore the app, generate traceable test cases, create/update only the Playwright automation that is missing or affected, execute, persist state, and report Spec -> Test Case -> Automation -> Result. Idempotent across runs.
+description: Spec-aware test management around the existing pipeline — read a Jira user story into a spec (when Jira is on), discover specifications (or explore autonomously when there are none), explore the app, generate traceable test cases, create/update only the Playwright automation that is missing or affected, execute, persist state, and report Spec -> Test Case -> Automation -> Result. Idempotent across runs.
 ---
 
 # SDET — spec-aware pipeline
@@ -15,6 +15,7 @@ Arguments (all optional):
 | Argument | Effect |
 |---|---|
 | *(none)* | Discover specs under the configured roots and process each. With no specs at all (or `spec.enabled: false`), fall back to autonomous mode. |
+| `--story <KEY>` (repeatable) | Jira mode (`jira.enabled`): read the user story from Jira, analyse it into a spec in the Jira spec folder, then run the full pipeline on that spec (§1a). Genuine defects are filed to Jira and linked to the story (§6a). |
 | `--spec <path>` (repeatable; file or folder) | Process only these. Takes precedence over discovery. A folder is searched recursively. |
 | `--explore [<area or URL>]` | Autonomous mode — no spec. |
 | `--list` | Show discovered specs and their automation state, then stop. Read-only. |
@@ -28,6 +29,17 @@ Arguments (all optional):
 Every automation run goes through this command. There is no separate single-case command: to
 automate or re-automate specific cases, use `--spec` for their spec. A case already marked
 `Needs Update` or `Not Automated` is picked up automatically.
+
+**Jira mode gate.** When the resolved config has `jira.enabled: true` and the arguments contain
+neither `--story` nor `--spec` (and this is not a read-only `--list` / `--report` / `--dry-run`
+run), stop before doing anything else and tell the user:
+
+> Jira mode is on — tell me which user story to work on: `/sdet --story PROJ-123`
+> (use your project key; several stories: `--story PROJ-123 --story PROJ-124`).
+> To re-run specs that already exist, use `/sdet --spec <file or folder>`.
+
+Do not fall back to discovery or autonomous exploration in Jira mode. `--spec` runs (re-running
+existing specs, including story specs, for regression) work as usual.
 
 ## 0. The tool, and the rules it enforces
 
@@ -64,6 +76,18 @@ Non-negotiables for this whole skill:
 - **Never convert a spec straight into Playwright code.** The application is explored before any
   detailed test case or automation is written.
 - **A failing test is not a reason to edit it.** Diagnose first (§6).
+- **Read the Product Catalog first.** Before analysing a story or spec, and in every hand-off to an
+  agent, include the Product Catalog: every file in `paths.productCatalog` (default
+  `product-catalog/`, main file `PROJECT-CATALOG.md`). It is the project's source of truth for
+  environments and URLs, user roles and permissions, test accounts (env var names), modules and
+  business rules — use it to resolve what a spec leaves implicit instead of guessing. If it is
+  missing or still the empty template, say so once in the report and continue.
+- **Jira is reached only through the Atlassian connector** (tools named `…getJiraIssue`,
+  `…createJiraIssue`, `…createIssueLink`, `…searchJiraIssuesUsingJql`, `…addCommentToJiraIssue`,
+  e.g. `mcp__claude_ai_Atlassian_Rovo__*`; load them with ToolSearch when deferred). Always pass
+  `cloudId` = `jira.cloudId`. The script never calls Jira; it records what you fetched and created
+  (`$SDET jira …`). If the connector is unavailable in Jira mode, stop and say so — never invent a
+  story.
 
 ## 1. Read-only modes
 
@@ -77,6 +101,51 @@ Non-negotiables for this whole skill:
   export those ids after printing the report. Nothing is regenerated.
 
 None of these need an execution-log entry.
+
+## 1a. Jira story intake (`--story <KEY>`)
+
+For each story key, one at a time, before discovery:
+
+1. **Fetch.** `getJiraIssue` with `issueIdOrKey: <KEY>`, `fields: ["*all"]` (so custom fields such
+   as acceptance criteria come back) and `responseContentFormat: "markdown"`. Also read what
+   sharpens the requirement: comments (`fields: ["comment"]` if not included), subtasks, and the
+   summaries of directly linked issues (`issuelinks`). Attachments cannot be read through the
+   connector — mention any that look like requirements (mock-ups, specs) under Open Questions.
+   If the key does not exist or cannot be read, report it and skip it.
+2. **Record it.** Write a JSON file to your scratchpad with at least `key`, `summary`, `issuetype`,
+   `status`, `updated` (the story's `updated` timestamp, verbatim), `url` (`<jira.siteUrl>/browse/<KEY>`),
+   plus `description`, `acceptance_criteria` (if a separate field), `comments`, `subtasks` and
+   `links` as fetched. Then `$SDET jira intake <KEY> --file <that file>`. It prints:
+   - `NEW` — no spec yet: analyse (step 3) and stamp (step 4).
+   - `UPDATED` — the story changed in Jira since its spec was written: re-analyse and stamp; the
+     spec version is bumped, so discovery classifies it `CHANGED` and the delta workflow (§4) runs.
+   - `UNCHANGED` — the spec already reflects this version of the story: **do not re-analyse**; go
+     straight to §2 with `--spec <the printed spec path>` (it is `UNCHANGED` or `RESUME` there).
+   Surface every `warning:` (wrong project, not a Story).
+3. **Analyse like a BA** (NEW / UPDATED). With the Product Catalog in hand, turn the story into a
+   spec body following `${CLAUDE_PLUGIN_ROOT}/templates/spec.jira.template.md`, written as a draft
+   file in your scratchpad **without frontmatter**:
+   - `## Acceptance Criteria` — one bullet per criterion, `AC1:`, `AC2:` … in the story's order,
+     each restated as a verifiable statement. On UPDATED, keep the AC numbering of criteria that
+     did not change (read the existing spec first) so the delta maps cleanly. If the story has no
+     explicit criteria, derive them from the description and say so under Open Questions.
+   - `## Scenarios` — the happy paths, then only the negative / validation / boundary / permission
+     scenarios the criteria, the story's comments and the Product Catalog actually imply; each
+     tagged with the ACs it proves (`[AC1]`).
+   - `## Roles & Access`, `## Business Rules`, `## Entry Point`, `## Test Data` (roles and env
+     var names from the Product Catalog — never values), `## Out of Scope`.
+   - `## Open Questions` — every gap, ambiguity or contradiction you could not resolve from the
+     story, its comments or the catalog. Never fill a gap with an invented rule; the tests assert
+     only what the story states. (`- None` when the story is unambiguous.)
+   - `## Security Checks` / `## Accessibility Checks` — only when those dimensions are enabled.
+4. **Stamp.** `$SDET jira stamp <KEY> --draft <draft file>`. It writes the spec into the Jira spec
+   folder (`jira.specFolder`, default `<first spec root>/jira/<KEY>.md`) — or over the existing
+   spec for this id wherever it lives — with a script-owned frontmatter (`id: <KEY>`, `version`,
+   `name`, `source: jira`, `jira_key`, `jira_url`, `jira_updated`). Never hand-edit that
+   frontmatter, and never write the spec file yourself.
+5. Continue with §2 using `--spec <that spec path>` for each story. The spec id **is** the story
+   key, so test cases are `<KEY>-TC01…`, tests are tagged `@<KEY>` / `@<KEY>-TCnn`, and every
+   downstream artefact traces back to the story.
 
 ## 2. Discover and plan
 
@@ -103,14 +172,18 @@ Process specs **one at a time**, completing each before starting the next.
 
 ## 3. Full workflow (NEW / RESUME)
 
-**1. Understand the spec.** Read the whole file. Extract the objective and scope, the scenarios /
+**1. Understand the spec.** Read the whole file, and the Product Catalog. Extract the objective and scope, the scenarios /
 requirements, the entry point, test-data *references* (env var names — never values), and — only
-for dimensions enabled in the resolved config — `security_checks` / `accessibility_checks`.
+for dimensions enabled in the resolved config — `security_checks` / `accessibility_checks`. For a
+story spec (`source: jira`), the acceptance criteria are the requirements: every AC must end up in
+at least one test case or in `not_covered`, and each case's `req_id` is `<KEY>-AC<n>` (the AC it
+proves; the first one when it proves several). Open Questions are not requirements — list them in
+the report, never turn a guess about them into an expected result.
 `$SDET state stage <ID> DISCOVERED --spec <path from discovery>` (pinning the file matters for specs
 outside `spec.roots`; later calls find it from state).
 
 **2. Explore the application.** Invoke **test-writer** in **explore-only mode** (its §0a) with: the
-spec id, entry point, objective, the scenario list, and which of security/accessibility are enabled.
+spec id, entry point, objective, the scenario list, the Product Catalog path, and which of security/accessibility are enabled.
 It reuses `automation-knowledge/exploration/` first, explores only what is missing, persists what it
 learns, and returns a structured summary of what actually exists: pages and navigation, forms and
 inputs, buttons/links, dialogs, validation and error messages, success states, redirects,
@@ -186,7 +259,8 @@ Status**, an **Actual Result** and its **Linked Issues**:
   `$SDET results classify <TC_ID> APPLICATION_DEFECT --issue BUG-<NNN> --actual "<its actual line>"`.
   This links the bug file to the test case (the rendered test case shows the bug's live title and
   status); `--issue` also takes a tracker URL or key, and may be repeated. The test stays as
-  written. When more than one layer ran, tell bug-reporter where the defect showed up: the UI side,
+  written. **When `jira.enabled` is true**, also file it to Jira now — §6a — and add the Jira key as
+  a second `--issue` on the same classify call. When more than one layer ran, tell bug-reporter where the defect showed up: the UI side,
   the API side, or a mismatch between them. For a visual regression, pass the expected, actual and
   diff images along with visual-test-writer's description of what changed.
 - A visual diff classified as an **intended change** is not a bug. Put visual-test-writer's
@@ -205,6 +279,7 @@ new/changed automation from every layer that ran to **code-reviewer** before it 
 mapping from the tags, snapshots the spec (for the next change diff), archives this test-case
 version, computes the new/updated/unchanged/obsoleted delta, and sets `AUTOMATED` or
 `AUTOMATION_INCOMPLETE`. Fix and re-commit on any error; surface its warnings.
+Then `$SDET issuelog write <ID>` (see §7a).
 
 **9. Excel export** (only when `--excel` was passed). `$SDET testcases export <ID>` writes
 `<SPEC_ID>.test-cases.xlsx` next to the JSON and `.md`: the same three-sheet workbook qa-analyst's
@@ -222,7 +297,10 @@ needs no regeneration. List every workbook path in the report.
 ## 4. Delta workflow (CHANGED)
 
 1. `$SDET specs diff <ID>` — requirement-level delta (items added/removed per section, changed
-   fields) plus a line diff against the **last processed** version.
+   fields) plus a line diff against the **last processed** version. For a story spec, a change to
+   `jira_updated` / `jira_url` alone is bookkeeping, not a requirement change, and a changed Open
+   Question changes no test case by itself — only Acceptance Criteria, Scenarios, Business Rules,
+   Roles, Entry Point and Test Data drive the delta.
 2. Map the delta onto the existing cases (match on `spec_scenario` / `req_id`):
    - **Added requirement** → new cases, numbered after the highest existing TC number (ids are never
      reused or renumbered).
@@ -321,12 +399,75 @@ Classification is test-runner's job, using the existing categories; this skill o
 Never modify a test simply because it failed, never re-record a visual baseline to clear a failure
 (that is `/update-baselines`, human-confirmed), and never report a case green by weakening it.
 
+## 6a. Filing genuine defects to Jira (`jira.enabled`)
+
+Only a failure classified `APPLICATION_DEFECT` (or a confirmed `VISUAL_REGRESSION`) goes to Jira —
+never an automation, locator, timing, environment, test-data or unknown failure, and never a spec
+vs. application question that is really an Open Question. **bug-reporter** always files the local
+`BUG-<NNN>.md` first (it has no Jira access); you then mirror it to Jira.
+
+1. **De-duplicate — never file the same defect twice.**
+   - `$SDET jira find-bug --tc <TC_ID>` and `--bug BUG-<NNN>`: a Jira bug already recorded for this
+     case or this local bug is the same defect.
+   - Otherwise search Jira: `searchJiraIssuesUsingJql` with
+     `project = <projectKey> AND issuetype = "<bugIssueType>" AND labels = "<first jira.labels>" AND statusCategory != Done AND (labels = "<TC_ID>" OR issue in linkedIssues(<STORY>))`,
+     and compare summaries/steps with this defect.
+   - If an open Jira bug is the same defect: **reuse it** — `addCommentToJiraIssue` with the new
+     occurrence (date, test case, one-line actual result, spec version), and record it with
+     `$SDET jira link-bug <BUG-KEY> --story <STORY> --tc <TC_ID> --bug BUG-<NNN> --reused`.
+     If it is a Jira bug in a Done status that reproduces again, file a new bug (step 3) and link
+     it to the old one with `Relates`, noting "regression of <old key>" in the description.
+2. **Choose the link type** (from `jira.linkTypes`), per bug:
+   Start from bug-reporter's `JIRA LINK HINT` line (`blocks-acceptance: yes|no` and its reason),
+   and check it against the rules below:
+   - **Blocks** — the defect stops the story from being accepted: an acceptance criterion cannot
+     be met (the case proving an AC's primary flow fails, or the defect sits in the AC's core
+     behaviour), or bug-reporter rated it `Blocker` / `Critical`.
+   - **Relates** — everything else: a `Major` / `Minor` defect where the ACs still hold (a
+     validation message, an edge case, a cosmetic or secondary-flow problem), or a defect found in
+     adjacent functionality outside this story's ACs.
+   State the reason in one line in the bug description ("Blocks PROJ-123: AC2 cannot be met").
+3. **Create** (automatic when `jira.autoCreateBugs` is true; otherwise list every bug about to be
+   filed and confirm once per run). `createJiraIssue` with `cloudId`, `projectKey`,
+   `issueTypeName: <jira.bugIssueType>`, `contentFormat: "markdown"`,
+   `summary` = the local bug's title, and `additional_fields: {"labels": [<jira.labels>, "<TC_ID>"]}`
+   (plus `priority` when the site accepts bug-reporter's priority name — if Jira rejects a field,
+   retry without it rather than failing). The description is the local bug's plain-language
+   sections — Summary, Business impact, Steps to reproduce, Expected result (quoting the AC),
+   Actual result, Why this is a defect, Environment — followed by a **Traceability** block (story
+   key, spec id and version, test case id and title, automation test, local bug file path) and a
+   short **Technical details** section. Screenshots, traces, videos and HAR files cannot be
+   attached through the connector: list their project-relative paths and say so. Never put a
+   credential, token, cookie or personal data in Jira (the same scrubbing as bug-reporter §3).
+4. **Link to the story.** `createIssueLink` with `type` = the chosen link type:
+   - Blocks: `inwardIssue: <BUG-KEY>` (the blocker), `outwardIssue: <STORY-KEY>` (the blocked
+     story) — the story then shows "is blocked by <BUG-KEY>".
+   - Relates: `inwardIssue: <BUG-KEY>`, `outwardIssue: <STORY-KEY>`.
+   If the link fails, the bug still exists — report the failure and retry once; never create a
+   second bug.
+5. **Record.** `$SDET jira link-bug <BUG-KEY> --story <STORY> --tc <TC_ID>[,<TC_ID>…] --bug BUG-<NNN> --link-type <Blocks|Relates>`
+   (writes `jira_key` / `jira_url` into the local bug file and the bug registry), then
+   `$SDET results classify <TC_ID> APPLICATION_DEFECT --issue BUG-<NNN> --issue <BUG-KEY> --actual "…"`.
+6. A bug found while running a spec that did not come from a story (no `source: jira`) is still
+   filed to `jira.projectKey`, just without a story link.
+7. **Story comment** (only when `jira.commentOnStory` is true): after the run, one
+   `addCommentToJiraIssue` on the story — test cases (count by type), pass / fail / blocked,
+   bugs raised or reused with their link type, and the Open Questions. One comment per run, never
+   one per test.
+
 ## 7. Report
+
+**7a. Issue logs.** Before reporting, always run `$SDET issuelog write` (no ids = rebuild the
+whole matrix). It regenerates `issue-logs/TRACEABILITY.md` (Story → Spec → Test Case → Automation →
+Last Result → Local Bug → Jira Bug → Link → Bug Status), one `issue-logs/<ID>.md` per story/spec
+(story, spec versions, test cases, bugs, run history) and `issue-logs/traceability.json`. Never
+edit those files by hand. List them in the report.
 
 Print `$SDET report <processed IDs>` (each failure shows its test status, actual result and linked
 issues; the rendered test-cases `.md` has the full Execution Results table), then add, in plain words: per spec, what was classified and
 what was done (created / updated / unchanged — "no duplication" for an unchanged spec), any spec vs
-application contradictions, bugs filed, anything skipped and why (missing id declined, duplicate id,
+application contradictions, bugs filed (local id, Jira key and link type — created or reused),
+for a story: whether it was NEW / UPDATED / UNCHANGED at intake and its Open Questions, anything skipped and why (missing id declined, duplicate id,
 blocked environment), and every warning. Disabled dimensions are reported only as `Disabled`, never
 with findings. An automated accessibility scan is reported as exactly that — never as WCAG
 compliance.

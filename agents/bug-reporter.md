@@ -56,6 +56,13 @@ Collect everything available for the failing test:
 - Console log output (JS errors, warnings)
 - Environment: browser/engine, viewport, base URL, build/commit if known, test-data used
 
+Read the project's Product Catalog (`product-catalog/PROJECT-CATALOG.md`, or `paths.productCatalog`
+in `sdet.config.json`) when it exists: describe the environment, the role and the kind of account
+in its terms ("a Standard user on QA"), and use its business rules when explaining why the
+behaviour is a defect. When the test case belongs to a spec generated from a Jira story
+(`source: jira`, spec id = story key), quote the acceptance criterion it proves (`<KEY>-AC<n>` is
+the case's `req_id`) as the expected result.
+
 ## 3. Scrub before reporting
 
 Before including any artifact path or excerpt in the report:
@@ -218,3 +225,16 @@ TEST CASE UPDATE: <SPEC_ID-TCnn> | issue: BUG-<NNN> | actual: <the Actual result
 The calling pipeline records it on the test case (`sdet.js results classify <TC> APPLICATION_DEFECT
 --issue BUG-<NNN> --actual "..."`), so the test case and the bug describe the failure in the same
 words and link to each other.
+
+You never talk to Jira (you have no Jira tools). When the project has Jira integration on, the
+calling pipeline mirrors your bug to Jira from your report, so for every bug filed or regressed also
+return:
+
+```
+JIRA LINK HINT: <BUG-NNN> | story: <story key or "none"> | severity: <severity> | blocks-acceptance: <yes|no> - <one line: which acceptance criterion cannot be met, or why the story's criteria still hold>
+```
+
+`blocks-acceptance: yes` means the defect stops an acceptance criterion from being met; the
+pipeline uses it to choose between a `Blocks` and a `Relates` link to the story. If the local bug
+file already carries a `jira_key` (a bug previously mirrored to Jira), say so — that Jira bug is
+reused, not duplicated.

@@ -62,7 +62,8 @@ restarting.
 ## Spec-driven testing (`/sdet`)
 
 ```
-/sdet-pipeline:sdet-config init                     # one-time: creates sdet.config.json (asks for spec folders, UI/API/visual layers, security, accessibility)
+/sdet-pipeline:sdet-config init                     # one-time: creates sdet.config.json + spec folder, product-catalog/, issue-logs/ (asks for spec folder, layers, security, accessibility, Jira)
+/sdet-pipeline:sdet --story PROJ-123                # Jira mode: story -> spec -> test cases -> automation -> run -> bugs filed to Jira and linked
 /sdet-pipeline:sdet                                 # discover specs under spec.roots and process them
 /sdet-pipeline:sdet --spec client-a/auth/login.md   # one spec (or a folder) — takes precedence over discovery
 /sdet-pipeline:sdet --explore                       # no spec: autonomous exploration
@@ -108,6 +109,27 @@ restarting.
   summary, business impact, plain steps to reproduce, expected vs actual, and *why this is a
   defect* come first in everyday language; the evidence (errors, trace, HAR, API
   request/response) goes in a separate *Technical details* section for developers.
+- **Project folders are created for you.** `sdet-config init` creates the spec folder you name
+  (even if it doesn't exist yet), `product-catalog/PROJECT-CATALOG.md` and `issue-logs/`;
+  `sdet-config set` and `sdet-config scaffold` create any configured folder that is missing later.
+- **Product Catalog.** `product-catalog/PROJECT-CATALOG.md` is where the team writes project-level
+  facts: environments and URLs, user roles and permissions, test accounts (env var *names* only),
+  modules, business rules, test data. Every agent reads the whole folder before exploring, writing
+  test cases or filing bugs.
+- **Jira mode** (`jira.enabled`, chosen with the Atlassian connector during `sdet-config init`:
+  site, project, bug type, link types). `/sdet --story PROJ-123` reads the story (description,
+  acceptance criteria, comments, subtasks, links), analyses it into `specs/jira/PROJ-123.md` (spec id
+  = story key; acceptance criteria as `AC1…`, gaps under *Open Questions*), then runs the normal
+  pipeline. Re-running an unchanged story does no re-analysis; an edited story bumps the spec
+  version and only the affected cases change. Without `--story` (or `--spec`), `/sdet` asks for a
+  story id. Genuine application defects are filed to Jira automatically (de-duplicated against
+  earlier bugs), labelled `sdet-agent`, and linked to the story as **Blocks** (an acceptance
+  criterion cannot be met) or **Relates** (otherwise). Evidence files are referenced by path — the
+  connector cannot upload attachments.
+- **Issue logs** (`issue-logs/`, regenerated on every run, never hand-edited): `TRACEABILITY.md`
+  maps Story → Spec → Test Case → Automation → Last Result → Local Bug → Jira Bug → link type →
+  Bug Status; `<ID>.md` per story/spec adds spec versions and run history; `traceability.json`
+  holds the same data.
 - **State** is in `.sdet/` (`state.json`, spec snapshots for change diffs, test-case history).
   Commit it with the test cases; gitignore `.sdet/results/`.
 - **Security and accessibility** coverage is generated, executed and reported only when enabled in

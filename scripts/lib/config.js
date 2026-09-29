@@ -23,6 +23,8 @@ const SHORTHAND = {
   collection: 'api.collection',
   'spec-root': 'spec.roots',
   'spec-enabled': 'spec.enabled',
+  jira: 'jira.enabled',
+  'jira-project': 'jira.projectKey',
 };
 
 const ON_UNCHANGED = ['skip', 'verify', 'run'];
@@ -194,7 +196,24 @@ function validateConfig(config, defaults = loadDefaults()) {
   const collection = config.api && config.api.collection;
   if (collection != null && typeof collection !== 'string') errors.push('"api.collection" must be a file path or null.');
   else if (collection && !testing.api) warnings.push('api.collection is set but testing.api is false - the collection is ignored.');
+  const jira = config.jira || {};
+  if (jira.enabled) {
+    if (!jira.projectKey || !/^[A-Z][A-Z0-9_]+$/.test(String(jira.projectKey))) {
+      errors.push('jira.enabled is true but jira.projectKey is missing or not a Jira project key (e.g. "PROJ") - run "/sdet-config init" to pick the project.');
+    }
+    if (!jira.cloudId) errors.push('jira.enabled is true but jira.cloudId is missing - run "/sdet-config init" to pick the Jira site.');
+    if (!Array.isArray(jira.linkTypes) || !jira.linkTypes.length) errors.push('jira.linkTypes needs at least one issue link type (e.g. ["Relates", "Blocks"]).');
+    if (jira.projectKey && !new RegExp(spec.idPattern).test(`${jira.projectKey}-1`)) {
+      warnings.push(`Jira story keys like ${jira.projectKey}-123 do not match spec.idPattern ${spec.idPattern} - story specs will be flagged.`);
+    }
+  }
   return { errors, warnings };
+}
+
+/** Folder that holds specs generated from Jira stories (jira.specFolder, else <first spec root>/jira). */
+function jiraSpecFolder(config) {
+  if (config.jira && config.jira.specFolder) return config.jira.specFolder;
+  return path.posix.join(((config.spec && config.spec.roots) || [])[0] || 'specs', 'jira');
 }
 
 function writeProjectConfig(cwd, config) {
@@ -220,5 +239,6 @@ module.exports = {
   coerce,
   deepMerge,
   normalize,
+  jiraSpecFolder,
   PROJECT_CONFIG_NAME,
 };
