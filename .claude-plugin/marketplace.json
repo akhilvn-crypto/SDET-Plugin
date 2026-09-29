@@ -8,8 +8,8 @@
     {
       "name": "sdet-pipeline",
       "source": ".",
-      "description": "Playwright + TypeScript SDET pipeline: UI/API/visual test-authoring, execution, bug-reporting, and code-review sub agents driven by one spec-aware command (/sdet: human review gates on generated specs, test cases and Jira bugs, spec discovery, traceable test cases, idempotent automation, config-selected UI/API/visual layers, config-gated security/accessibility), with guardrail hooks and a persistent per-run execution log.",
-      "version": "1.11.0",
+      "description": "Playwright + TypeScript SDET pipeline (plus Appium + Java Android mobile automation via /mobile-automate): UI/API/visual test-authoring, execution, bug-reporting, and code-review sub agents driven by one spec-aware command (/sdet: human review gates on generated specs, test cases and Jira bugs, spec discovery, traceable test cases, idempotent automation, config-selected UI/API/visual layers, config-gated security/accessibility), with guardrail hooks and a persistent per-run execution log.",
+      "version": "1.12.0",
       "author": {
         "name": "Akhil VN"
       }

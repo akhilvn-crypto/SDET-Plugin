@@ -6,8 +6,9 @@ product bugs, code review for automation-code issues.
 
 ## What it does
 
-Six sub agents (`test-writer`, `api-test-writer`, `visual-test-writer`, `test-runner`,
-`bug-reporter`, `code-reviewer`) work together behind four pipeline commands (plus `/sdet-config`), guarded by hooks
+Eight sub agents (`test-writer`, `api-test-writer`, `visual-test-writer`, `test-runner`,
+`bug-reporter`, `code-reviewer`, plus `mobile-test-writer` and `mobile-test-runner` for Android apps)
+work together behind five pipeline commands (plus `/sdet-config`), guarded by hooks
 that block secret leaks, block `.env` commits, and enforce an execution-log entry for every run.
 
 | Command | What it does |
@@ -16,6 +17,7 @@ that block secret leaks, block `.env` commits, and enforce an execution-log entr
 | `/review-automation [path]` | Reviews Playwright + TypeScript automation code quality (defaults to the current git diff). |
 | `/sdet [--spec <path>] [--explore] [--list]` | The one automation command. Spec-aware pipeline: discovers specifications (or explores autonomously when there are none), explores the app, generates traceable test cases, creates/updates only the automation that's missing or affected, runs it, routes real bugs to `bug-reporter` and passing code to `code-reviewer`, and keeps Spec → Test Case → Automation → Result state. Which layers it automates (UI, API, visual) comes from `sdet.config.json`. Safe to re-run: unchanged specs produce no duplicates. |
 | `/sdet-config [init\|show\|set\|validate]` | Creates/edits the central `sdet.config.json` — spec folders, UI/API/visual automation layers, API collection, security/accessibility toggles, output paths, execution behaviour. |
+| `/mobile-automate [--package <pkg>] [--activity <act>]` | Android app pipeline in **Appium + Java**: checks every dependency and the connected device, asks for the app's package and launch activity, explores the app, generates test cases (human review), automates them (Maven + TestNG + Page Objects), runs them and files bugs for genuine defects. See [Mobile testing](#mobile-testing-mobile-automate). |
 | `/update-baselines [scope]` | Reviews every failing visual snapshot by reading its expected/actual/diff images, refuses to re-record a genuine regression, and regenerates only the baselines you confirm are intended. |
 
 Claude also auto-invokes the matching skill from plain language (e.g. "automate the login spec") — no
@@ -146,6 +148,52 @@ restarting.
   `sdet.config.json` (accessibility is off by default; a spec asking for it doesn't turn it on).
 - Deterministic parts run through `scripts/sdet.js` (zero dependencies) — run it with no arguments
   for its sub-commands.
+
+## Mobile testing (`/mobile-automate`)
+
+```
+/sdet-pipeline:mobile-automate                                   # asks which app (package + activity)
+/sdet-pipeline:mobile-automate --package com.acme.shop --activity .MainActivity
+/sdet-pipeline:mobile-automate --apk builds/shop-3.4.1.apk      # install this build, then test it
+/sdet-pipeline:mobile-automate --run-only                        # just run the existing suite + file bugs
+/sdet-pipeline:mobile-automate --tc SHOP-TC03,SHOP-TC05          # write/run only these cases
+```
+
+**Prerequisites** (checked by `node scripts/mobile.js doctor`, which the command runs first): Node
+20.19+, a JDK 11+ (17+ recommended) with `JAVA_HOME`, Maven 3.9+, the Android SDK with `ANDROID_HOME`,
+platform-tools (adb) and build-tools, Appium 2/3 (`npm i -g appium`) and its UiAutomator2 driver
+(`appium driver install uiautomator2`). The command offers to install the Appium pieces for you;
+the JDK / SDK / environment variables you install yourself. A phone with USB debugging enabled, or an
+emulator (the command can boot one of your AVDs).
+
+What it does, in order:
+1. **Dependencies and device** — stops with exact fix instructions if anything is missing, the
+   device is unauthorized/offline, or none is connected.
+2. **App** — asks for the package and launch activity (offering the remembered app and the one
+   open on the device right now), verifies it is installed and the activity exists, and remembers
+   it (`sdet.config.json` → `mobile`, or `.sdet/mobile/app.json`). Test-case ids are prefixed with
+   an app id derived from the package (`com.acme.shop` → `SHOP-TC01`).
+3. **Appium server** — starts one if none is running (log in `.sdet/mobile/appium.log`).
+4. **Explore** — `mobile-test-writer` drives the app through a live Appium session (non-destructive:
+   no purchases, deletions or messages) and writes a screen/flow/locator map to
+   `automation-knowledge/exploration/mobile/<APP_ID>.md`. Re-used on the next run for the same app version.
+5. **Test cases** — `test-cases/mobile/<APP_ID>.test-cases.json` + `.md`, with stable ids; you
+   approve, request changes, or pause before anything is automated.
+6. **Automate** — an Appium java-client + TestNG + Maven project in `mobile-tests/` (scaffolded
+   from `templates/mobile/` on first run: `Config`, `DriverFactory`, `BaseTest` with automatic
+   failure evidence, `BasePage` with explicit waits), one screen object per screen, one `@Test` per
+   case tagged with its id — run any case with `mvn test -Dgroups=SHOP-TC03`.
+7. **Run and diagnose** — `mobile-test-runner` classifies every failure from its screenshot, page
+   source, logcat and screen recording (`APP_CRASH`, `APPLICATION_DEFECT`, locator/timing/device/…),
+   and results are written back onto the test cases.
+8. **Bugs** — `bug-reporter` files `bugs/BUG-<NNN>.md` for crashes and genuine defects, written for
+   business readers with the mobile evidence under Technical details; mirrored to Jira (after your
+   approval, per bug) when Jira is enabled. `--story PROJ-123` links them to a story.
+
+`scripts/mobile.js` (zero dependencies) is the deterministic part: `doctor`, `devices`, `avds`,
+`foreground`, `app`, `config`, `server status`, the exploration `session` commands (`start`,
+`source`, `tap`, `type`, `swipe`, `back`, `screenshot`, …), `testcases` and `results`. Run it with
+no arguments for the full list. Android only for now (iOS/XCUITest is not supported yet).
 
 ## Attribution
 

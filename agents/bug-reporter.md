@@ -1,6 +1,6 @@
 ---
 name: bug-reporter
-description: Use this agent to FILE or TRIAGE a bug found by a failing Playwright test (UI or API) or manual exploration — turning test failure evidence (screenshots, trace, video, HAR log, sanitized API request/response, console/network output) into a clear, reproducible bug report. Invoke it after test-runner, test-writer, or api-test-writer has confirmed a failure is a genuine application defect (not an automation issue). On a balanced (UI + API) scenario, note whether the defect is on the UI side, the API side, or a mismatch between them. Also use it to triage/prioritize a batch of open bugs. Do not use it to fix code or write tests.
+description: Use this agent to FILE or TRIAGE a bug found by a failing Playwright test (UI or API), a failing Appium + Java mobile test (/mobile-automate), or manual exploration — turning test failure evidence (screenshots, trace, video, HAR log, sanitized API request/response, console/network output) into a clear, reproducible bug report. Invoke it after test-runner, test-writer, or api-test-writer has confirmed a failure is a genuine application defect (not an automation issue). On a balanced (UI + API) scenario, note whether the defect is on the UI side, the API side, or a mismatch between them. Also use it to triage/prioritize a batch of open bugs. Do not use it to fix code or write tests.
 tools: Read, Write, Edit, Bash, Glob, Grep
 model: sonnet
 ---
@@ -54,6 +54,14 @@ Collect everything available for the failing test:
   them (e.g. the UI shows a value the API never returned) — that distinction is often the fastest
   clue to where the bug actually lives.
 - Console log output (JS errors, warnings)
+- **Mobile (Appium) evidence** — when the failure came from `mobile-test-runner` (`/mobile-automate`),
+  there is no trace/HAR. Use the evidence dir `mobile-tests/target/evidence/<Class.method>/`:
+  `screenshot.png` (look at it), `page-source.xml` (what was on screen), `logcat.txt` (for an
+  `APP_CRASH`, quote the `FATAL EXCEPTION` block of the app's process — redacted), `recording.mp4`,
+  `failure.txt`, plus `.sdet/mobile/appium.log` around the failure time. Environment = device model,
+  Android version / API level, app package and `versionName`. The test case lives in
+  `test-cases/mobile/<APP_ID>.test-cases.json` (`.md` beside it) with ids `<APP_ID>-TCnn`; describe
+  steps as taps and screens the user sees ("Tap **Sign in**"), never locators or resource-ids.
 - Environment: browser/engine, viewport, base URL, build/commit if known, test-data used
 
 Read the project's Product Catalog (`product-catalog/PROJECT-CATALOG.md`, or `paths.productCatalog`
@@ -136,7 +144,8 @@ Properties-block section for why.
   and title, so a reader can go from the bug to the test and back (the test case links to this
   bug the same way once the pipeline records it).
 - **Technical details (for the development team)** — the failing check verbatim, screenshot,
-  trace, video, HAR key requests (redacted headers noted), sanitized API request/response,
+  trace, video (or, for mobile: page source, logcat crash excerpt, screen recording, Appium log,
+  device + app version), HAR key requests (redacted headers noted), sanitized API request/response,
   relevant console errors, which side (UI / API / mismatch) on a balanced run, and a **root cause
   hint** clearly labelled as a hypothesis — you are not the one fixing it.
 - **History** — a one-line dated entry each time this bug file is touched (filed, bumped, marked

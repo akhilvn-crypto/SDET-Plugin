@@ -78,6 +78,8 @@ how consistently it happens.>
 - HAR: `<path>` — key request(s): method, URL, status, timing (redacted headers noted)
 - API request/response (if applicable): method, URL, status, sanitized body/timing
 - Console errors: relevant lines only
+- Mobile only: device <model>, Android <x> (API <n>), app <package> <versionName>; page source `<path>`;
+  logcat `<path>` (crash excerpt below, redacted); recording `<path>`; Appium log `.sdet/mobile/appium.log`
 - UI / API side: <UI only, API only, or a mismatch between them - balanced runs only>
 - Root cause hint (hypothesis, not a diagnosis): <...>
 

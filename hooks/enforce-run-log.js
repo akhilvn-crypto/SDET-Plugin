@@ -2,7 +2,7 @@
 /**
  * Stop hook: makes sure the execution log actually gets written every time a
  * pipeline command runs, instead of relying on the agent to remember the last
- * step of /sdet, /runtest, /review-automation, or /update-baselines.
+ * step of /sdet, /runtest, /review-automation, /update-baselines, or /mobile-automate.
  *
  * Logic (deliberately ordering-based, not timestamp-based - transcript order
  * is already chronological, so there's nothing to parse or trust a clock for):
@@ -44,7 +44,7 @@ const MAX_TRANSCRIPT_BYTES = 5 * 1024 * 1024; // skip enforcement on unreasonabl
 // is running from this plugin or from a plain project-level .claude/commands/.
 // The trailing (?![\w-]) (rather than \b) keeps "/sdet" from also matching "/sdet-config",
 // which only edits configuration and never records a run.
-const PIPELINE_COMMAND_RE = /^\s*<command-name>\s*\/(?:[\w.-]+:)?(runtest|review-automation|update-baselines|sdet)(?![\w-])/i;
+const PIPELINE_COMMAND_RE = /^\s*<command-name>\s*\/(?:[\w.-]+:)?(runtest|review-automation|update-baselines|mobile-automate|sdet)(?![\w-])/i;
 // /sdet's read-only forms (listing, reporting, planning) change nothing, so they owe no log entry.
 const READ_ONLY_SDET_ARGS_RE = /<command-args>[^<]*--(list|report|dry-run)(?![\w-])/i;
 const RECORD_RUN_RE = /record-run\.js/;

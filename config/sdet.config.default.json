@@ -90,5 +90,15 @@
     ],
     "autoCreateBugs": true,
     "commentOnStory": false
+  },
+  "mobile": {
+    "platform": "android",
+    "appId": null,
+    "appPackage": null,
+    "appActivity": null,
+    "udid": null,
+    "appiumUrl": "http://127.0.0.1:4723",
+    "projectDir": "mobile-tests",
+    "apkPath": null
   }
 }
